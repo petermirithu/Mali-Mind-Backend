@@ -1,0 +1,38 @@
+name: MaliMind Data Fetchers
+
+on:
+  schedule:
+    - cron: "0 * * * *"      # Forex — every hour
+    - cron: "0 6 * * 1"      # Fuel — every Monday 6AM (EPRA updates weekly)
+    - cron: "0 7 * * *"      # Food basket — daily 7AM
+  workflow_dispatch:          # Allow manual trigger from GitHub UI
+
+jobs:
+  fetch-forex:
+    name: Fetch Forex Rates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger forex fetcher
+        run: |
+          curl -X POST "${{ secrets.API_BASE_URL }}/fetch/forex" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+
+  fetch-fuel:
+    name: Fetch Fuel Prices
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 6 * * 1'
+    steps:
+      - name: Trigger fuel fetcher
+        run: |
+          curl -X POST "${{ secrets.API_BASE_URL }}/fetch/fuel" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+
+  fetch-food:
+    name: Seed Food Basket
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 7 * * *'
+    steps:
+      - name: Trigger food basket seed
+        run: |
+          curl -X POST "${{ secrets.API_BASE_URL }}/fetch/food" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
