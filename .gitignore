@@ -1,3 +1,4 @@
 virtual/
 .env
+supabase_schema.sql
 __pycache__/

@@ -27,17 +27,17 @@ Respond ONLY with valid JSON matching the exact schema requested."""
 def _build_prompt(trigger: str, data: dict) -> str:
     """Build the user prompt for insight generation."""
     return f"""
-Economic update in Kenya:
-Trigger: {trigger}
-Data: {json.dumps(data, indent=2)}
+        Economic update in Kenya:
+        Trigger: {trigger}
+        Data: {json.dumps(data, indent=2)}
 
-Generate a household impact insight. Respond with this exact JSON:
-{{
-  "summary": "<2 sentence plain-English explanation of impact on a Kenyan household>",
-  "impact_score": <float from -1.0 (very bad) to 1.0 (very good)>,
-  "affected_areas": ["transport", "food", "electricity", "imports"]  // pick relevant ones
-}}
-"""
+        Generate a household impact insight. It MUST be a valid JSON with NO syntax errors. Respond with this exact JSON:
+        {{
+        "summary": "1-2 sentences in plain English, easy to understand explanation of impact on a Kenyan household",
+        "impact_score": <float from -1.0 (very bad) to 1.0 (very good)>,
+        "affected_areas": ["transport", "food", "electricity", "imports"]  // pick relevant ones
+        }}
+    """
 
 async def generate_insight(trigger: str, data: dict) -> dict:
     """
@@ -49,13 +49,12 @@ async def generate_insight(trigger: str, data: dict) -> dict:
     """
     prompt = _build_prompt(trigger, data)
     parsed = call_ai(prompt, system_prompt=SYSTEM_PROMPT)
-
+    
     insight = {
         "trigger": trigger,
         "summary": parsed["summary"],
         "impact_score": float(parsed["impact_score"]),
-        "affected_areas": parsed["affected_areas"],
-        "generated_at": datetime.utcnow().isoformat(),
+        "affected_areas": parsed["affected_areas"]        
     }
     return insight
 

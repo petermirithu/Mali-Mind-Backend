@@ -7,6 +7,7 @@ from google import genai
 from google.genai import types
 from core.config import settings
 import json
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ if settings.openrouter_api_key:
 
 # ── Models ────────────────────────────────────────────────────────────────────
 GEMINI_MODEL = "gemini-2.5-flash"
-OPENROUTER_MODEL = "deepseek/deepseek-r1:free"
+OPENROUTER_MODEL = "openrouter/free"
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -35,14 +36,21 @@ def _parse_json_response(raw: str) -> dict:
         # Remove first line (```json) and last line (```)
         lines = [l for l in lines[1:] if l.strip() != "```"]
         text = "\n".join(lines)
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Fallback: extract the first JSON object via regex
+        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        raise
 
 
 def call_gemini(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
-    """Call Gemini 2.5 Flash and return parsed JSON."""
+    """Call Gemini 2.5 Flash and return parsed JSON. Retries once on malformed JSON."""
     config = types.GenerateContentConfig(
         max_output_tokens=max_tokens,
-        temperature=0.3,
+        temperature=0.5,
     )
     if system_prompt:
         config.system_instruction = system_prompt
@@ -52,11 +60,31 @@ def call_gemini(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> 
         contents=prompt,
         config=config,
     )
-    return _parse_json_response(response.text)
+    try:
+        return _parse_json_response(response.text)
+    except json.JSONDecodeError as parse_err:
+        # Self-repair: ask Gemini to fix its own malformed JSON
+        logger.warning("Gemini returned invalid JSON, requesting self-repair...")
+        repair_prompt = (
+            f"The following text was supposed to be valid JSON but has syntax errors.\n"
+            f"System prompt was: {system_prompt}\n"
+            f"Initial prompt was: {prompt}\n"
+            f"Response was: {response.text}\n"
+            f"Fix the response, make sure it answers the prompt and return ONLY the corrected JSON, NO explanation!\n\n"            
+        )
+        repair_response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=repair_prompt,
+            config=types.GenerateContentConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.0,
+            ),
+        )
+        return _parse_json_response(repair_response.text)
 
 
 def call_openrouter(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
-    """Call DeepSeek-R1 via OpenRouter and return parsed JSON."""
+    """Call OpenRouter free models and return parsed JSON."""
     if not openrouter_client:
         raise RuntimeError("OpenRouter API key not configured")
 
@@ -68,7 +96,7 @@ def call_openrouter(prompt: str, system_prompt: str = "", max_tokens: int = 500)
     response = openrouter_client.chat.completions.create(
         model=OPENROUTER_MODEL,
         max_tokens=max_tokens,
-        temperature=0.3,
+        temperature=0.5,
         messages=messages,
         # extra_headers={
             # "HTTP-Referer": "https://malimind.onrender.com",
@@ -91,10 +119,10 @@ def call_ai(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict
     except Exception as e:
         logger.warning("Gemini failed (%s), falling back to OpenRouter...", e)
 
-    # ── Fallback: OpenRouter (DeepSeek-R1) ────────────────────────────────
+    # ── Fallback: OpenRouter ────────────────────────────────
     try:
         result = call_openrouter(prompt, system_prompt, max_tokens)
-        logger.info("AI call succeeded via OpenRouter (DeepSeek-R1)")
+        logger.info("AI call succeeded via OpenRouter")
         return result
     except Exception as e:
         logger.error("OpenRouter fallback also failed: %s", e)
