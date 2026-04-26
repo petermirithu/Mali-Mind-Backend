@@ -244,22 +244,22 @@ async def run_fuel_fetcher(city: str = "Nairobi") -> dict:
     return prices
 
 
-async def run_fuel_fetcher_all_cities(cities: list[str] | None = None) -> list[dict]:
-    """
-    Fetch + store prices for multiple cities in sequence.
-    Useful when you expand beyond Nairobi.
+# async def run_fuel_fetcher_all_cities(cities: list[str] | None = None) -> list[dict]:
+#     """
+#     Fetch + store prices for multiple cities in sequence.
+#     Useful when you expand beyond Nairobi.
 
-    Default: Nairobi only (MVP).
-    """
-    if cities is None:
-        cities = ["Nairobi"]
+#     Default: Nairobi only (MVP).
+#     """
+#     if cities is None:
+#         cities = ["Nairobi"]
 
-    results = []
-    for city in cities:
-        try:
-            result = await run_fuel_fetcher(city)
-            results.append(result)
-        except Exception as e:
-            logger.error("Failed fuel fetch for %s: %s", city, e)
+#     results = []
+#     for city in cities:
+#         try:
+#             result = await run_fuel_fetcher(city)
+#             results.append(result)
+#         except Exception as e:
+#             logger.error("Failed fuel fetch for %s: %s", city, e)
 
-    return results
+#     return results

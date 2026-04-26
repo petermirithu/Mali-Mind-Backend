@@ -23,7 +23,8 @@ if settings.openrouter_api_key:
     )
 
 # ── Models ────────────────────────────────────────────────────────────────────
-GEMINI_MODEL = "gemini-2.5-flash"
+# GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-pro"
 OPENROUTER_MODEL = "openrouter/free"
 
 
