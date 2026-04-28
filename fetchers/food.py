@@ -1,371 +1,515 @@
+"""
+Food Basket Fetcher — Dynamic Real-Time Kenyan Household Prices
+
+STRATEGY:
+─────────
+1. SCRAPE  — Search Quickmart per item using keyword-{term}&pagesize-30.
+             Parse product cards: img title + first KES price found in card.
+             Each item gets its own dedicated search → clean, targeted results.
+
+2. AI MATCH — Pass raw scraped candidates (title + price) for this item
+              to Claude to pick the best match. This handles:
+              - Brand name variations (Dola vs Jogoo vs Pembe)
+              - Unit mismatches (500g vs 1kg)  
+              - Noise products (e.g. "Maize Flour Porridge Mix" when we want plain flour)
+
+3. AI FALLBACK — If scrape returns zero results, ask Claude for estimated
+                 market price. Batched: one call covers all missed items.
+"""
+
 import httpx
 import re
 import json
 import logging
+import asyncio
 from bs4 import BeautifulSoup
 from datetime import datetime
-import asyncio
 from db.client import get_db
 from ai.core import call_ai
 
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
+
+QUICKMART_BASE   = "https://www.quickmart.co.ke"
+SEARCH_URL       = f"{QUICKMART_BASE}/products/search"
+BRANCH_ID        = "3501"   # Tom Mboya CBD — confirmed working
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml",
+    "Referer": f"{QUICKMART_BASE}/{BRANCH_ID}",
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # BASKET DEFINITION
-# Add / remove items here. Unit should reflect what we track.
-# quickmart_slug: the URL path on quickmart.co.ke for the product
-# search_term: what to search/ask AI if scrape fails
-# ─────────────────────────────────────────────────────────────
+# search_keyword: what to pass to ?keyword-{term}  (keep it short & specific)
+# ─────────────────────────────────────────────────────────────────────────────
+
 BASKET_ITEMS = [
-    # ── Grains & Flour ────────────────────────────────────────
     {
-        "name":          "maize_flour",
-        "label":         "Maize Flour (Unga)",
-        "unit":          "1kg",
-        "category":      "grains",
-        "quickmart_slug": "dola-maize-flour-1kg-1501",
-        "search_term":   "Dola maize flour 1kg Kenya price KES",
+        "name":           "maize_flour",
+        "label":          "Maize Flour (Unga)",
+        "unit":           "1kg",
+        "category":       "grains",
+        "search_keyword": "maize flour",
+        "match_keywords": ["maize", "flour"],
     },
     {
-        "name":          "wheat_flour",
-        "label":         "Wheat Flour",
-        "unit":          "1kg",
-        "category":      "grains",
-        "quickmart_slug": "jogoo-wheat-flour-1kg-1501",
-        "search_term":   "Jogoo wheat flour 1kg Kenya price KES",
+        "name":           "wheat_flour",
+        "label":          "Wheat Flour",
+        "unit":           "1kg",
+        "category":       "grains",
+        "search_keyword": "wheat flour",
+        "match_keywords": ["wheat", "flour"],
     },
     {
-        "name":          "rice",
-        "label":         "Rice",
-        "unit":          "1kg",
-        "category":      "grains",
-        "quickmart_slug": "pishori-rice-1kg-1501",
-        "search_term":   "pishori rice 1kg Kenya supermarket price KES",
-    },
-    # ── Sugar & Sweeteners ────────────────────────────────────
-    {
-        "name":          "sugar",
-        "label":         "Sugar",
-        "unit":          "1kg",
-        "category":      "sweeteners",
-        "quickmart_slug": "mumias-sugar-1kg-1501",
-        "search_term":   "Mumias sugar 1kg Kenya price KES",
-    },
-    # ── Oils & Fats ───────────────────────────────────────────
-    {
-        "name":          "cooking_oil",
-        "label":         "Cooking Oil",
-        "unit":          "1L",
-        "category":      "oils",
-        "quickmart_slug": "fresh-fri-cooking-oil-1l-1501",
-        "search_term":   "Fresh Fri cooking oil 1 litre Kenya price KES",
-    },
-    # ── Dairy ─────────────────────────────────────────────────
-    {
-        "name":          "milk",
-        "label":         "Milk (Fresh)",
-        "unit":          "1L",
-        "category":      "dairy",
-        "quickmart_slug": "brookside-fresh-milk-1l-1501",
-        "search_term":   "Brookside fresh milk 1 litre Kenya price KES",
-    },
-    # ── Protein ───────────────────────────────────────────────
-    {
-        "name":          "eggs",
-        "label":         "Eggs",
-        "unit":          "tray (30)",
-        "category":      "protein",
-        "quickmart_slug": "eggs-tray-30-1501",
-        "search_term":   "eggs tray 30 Kenya supermarket price KES 2026",
-    },
-    # ── Bread ─────────────────────────────────────────────────
-    {
-        "name":          "bread",
-        "label":         "Bread (White Sliced)",
-        "unit":          "400g loaf",
-        "category":      "baked",
-        "quickmart_slug": "supa-loaf-white-bread-400g-1501",
-        "search_term":   "Supa Loaf bread 400g Kenya price KES",
-    },
-    # ── Legumes ───────────────────────────────────────────────
-    {
-        "name":          "beans",
-        "label":         "Beans (Rose Coco)",
-        "unit":          "1kg",
-        "category":      "legumes",
-        "quickmart_slug": "rose-coco-beans-1kg-1501",
-        "search_term":   "rose coco beans 1kg Kenya supermarket price KES",
-    },            
-    # ── Vegetables (proxy — harder to scrape, AI preferred) ───
-    {
-        "name":          "tomatoes",
-        "label":         "Tomatoes",
-        "unit":          "1kg",
-        "category":      "vegetables",
-        "quickmart_slug": None,             # No fixed product page; AI handles
-        "search_term":   "tomatoes 1kg Kenya market price KES 2026",
+        "name":           "rice",
+        "label":          "Rice",
+        "unit":           "1kg",
+        "category":       "grains",
+        "search_keyword": "rice 1kg",
+        "match_keywords": ["rice"],
     },
     {
-        "name":          "onions",
-        "label":         "Onions",
-        "unit":          "1kg",
-        "category":      "vegetables",
-        "quickmart_slug": None,
-        "search_term":   "onions 1kg Kenya market price KES 2026",
+        "name":           "sugar",
+        "label":          "Sugar",
+        "unit":           "1kg",
+        "category":       "sweeteners",
+        "search_keyword": "sugar 1kg",
+        "match_keywords": ["sugar"],
+    },
+    {
+        "name":           "cooking_oil",
+        "label":          "Cooking Oil",
+        "unit":           "1L",
+        "category":       "oils",
+        "search_keyword": "cooking oil 1l",
+        "match_keywords": ["cooking", "oil"],
+    },
+    {
+        "name":           "milk",
+        "label":          "Milk (Fresh)",
+        "unit":           "1L",
+        "category":       "dairy",
+        "search_keyword": "fresh milk 1l",
+        "match_keywords": ["milk"],
+    },
+    {
+        "name":           "eggs",
+        "label":          "Eggs",
+        "unit":           "tray (30)",
+        "category":       "protein",
+        "search_keyword": "eggs tray",
+        "match_keywords": ["egg"],
+    },
+    {
+        "name":           "bread",
+        "label":          "Bread (White Sliced)",
+        "unit":           "400g loaf",
+        "category":       "baked",
+        "search_keyword": "white bread loaf",
+        "match_keywords": ["bread"],
+    },
+    {
+        "name":           "beans",
+        "label":          "Beans (Rose Coco)",
+        "unit":           "1kg",
+        "category":       "legumes",
+        "search_keyword": "beans 1kg",
+        "match_keywords": ["bean"],
+    },
+    {
+        "name":           "tomatoes",
+        "label":          "Tomatoes",
+        "unit":           "1kg",
+        "category":       "vegetables",
+        "search_keyword": "tomatoes",
+        "match_keywords": ["tomato"],
+    },
+    {
+        "name":           "onions",
+        "label":          "Onions",
+        "unit":           "1kg",
+        "category":       "vegetables",
+        "search_keyword": "onions",
+        "match_keywords": ["onion"],
     },
 ]
 
-# Quickmart Nairobi branch (Waiyaki Way) — stable Nairobi reference
-QUICKMART_BASE = "https://www.quickmart.co.ke"
-QUICKMART_BRANCH_ID = "1501"   # Waiyaki Way, Nairobi
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; MaliMind/1.0; +https://malimind.co.ke)",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+BASKET_BY_NAME: dict[str, dict] = {i["name"]: i for i in BASKET_ITEMS}
 
 
-# ─────────────────────────────────────────────────────────────
-# TIER 1: Quickmart product page scrape
-# ─────────────────────────────────────────────────────────────
-async def _scrape_quickmart_price(slug: str, item_label: str) -> float | None:
+# ─────────────────────────────────────────────────────────────────────────────
+# HTML PARSER — extracts product cards from Quickmart search results
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_product_cards(html: str) -> list[dict]:
     """
-    Fetch a Quickmart product page and extract the KES price.
-    Returns price as float or None if not found.
+    Parse Quickmart product cards and return separated structured rows.
+
+    Returns:
+    [
+        {
+            "title": "Pembe Maize Meal 10Kg",
+            "price_kes": 830.00,            
+        }
+    ]
     """
-    url = f"{QUICKMART_BASE}/{slug}"
+
+    soup = BeautifulSoup(html, "lxml")
+    results = []
+
+    # each product card has products-head + products-body nearby
+    bodies = soup.find_all("div", class_="products-body")
+
+    for body in bodies:
+        try:
+            # locate matching parent container
+            parent = body.parent
+
+            # ── title ─────────────────────────────────────
+            title_tag = body.find("a", class_="products-title")
+
+            if title_tag:
+                title = (
+                    title_tag.get("title")
+                    or title_tag.get_text(strip=True)
+                ).strip()
+                href = title_tag.get("href", "")
+            else:
+                title = ""
+                href = ""
+
+            if not title:
+                continue
+
+            # ── price ─────────────────────────────────────
+            price_tag = body.find(
+                "span",
+                class_="products-price-new"
+            )
+
+            if not price_tag:
+                continue
+
+            price_text = price_tag.get_text(" ", strip=True)
+
+            m = re.search(
+                r"([\d,]+(?:\.\d{1,2})?)",
+                price_text
+            )
+
+            if not m:
+                continue
+
+            price = float(m.group(1).replace(",", ""))
+            
+            results.append({
+                "title": title,
+                "price_kes": price                
+            })
+
+        except Exception:
+            continue
+
+    # dedupe
+    seen = set()
+    final = []
+
+    for item in results:
+        key = (
+            item["title"].lower(),
+            item["price_kes"]
+        )
+
+        if key not in seen:
+            seen.add(key)
+            final.append(item)
+
+    return final
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TIER 1 — Per-item keyword search on Quickmart
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _search_item(client: httpx.AsyncClient, item: dict) -> dict:
+    """
+    Search Quickmart for a single basket item.
+    Returns {item_name: [list of candidate products]}.
+
+    URL format:  /products/search?keyword-{term}&pagesize-30
+    Note: Quickmart uses dashes (keyword-X), NOT equals (keyword=X).
+    """
+    keyword = item["search_keyword"].replace(" ", "+")
+    url = f"{SEARCH_URL}?keyword-{keyword}&pagesize-30"
+        
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(url, headers=HEADERS)
-            if resp.status_code != 200:
-                logger.warning("Quickmart %s returned HTTP %s", slug, resp.status_code)
-                return None
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            logger.warning("[Search] %s → HTTP %s", item["label"], resp.status_code)
+            return {item["name"]: []}
+                        
+        cards = _parse_product_cards(resp.text)        
 
-        html = resp.text
-        soup = BeautifulSoup(html, "lxml")
+        # Filter: at least one match_keyword must appear in title
+        match_kws = item.get("match_keywords", [])
+        relevant = [
+            c for c in cards
+            if any(kw.lower() in c["title"].lower() for kw in match_kws)
+        ]
 
-        # Quickmart price patterns:
-        # 1. Look for "KES 250.00" pattern anywhere in page text
-        text = soup.get_text(separator=" ")
-        kes_matches = re.findall(r"KES\s*([\d,]+(?:\.\d{1,2})?)", text)
-        if kes_matches:
-            # Filter out obviously wrong values (< 5 or > 50000)
-            candidates = [
-                float(p.replace(",", "")) for p in kes_matches
-                if 5 < float(p.replace(",", "")) < 50000
-            ]
-            if candidates:
-                # Take the lowest reasonable price (avoids picking discounted-from price)
-                price = min(candidates)
-                logger.info("[Quickmart scrape] %s → KES %.2f", item_label, price)
-                return price
+        logger.info(
+            "[Search] %-20s → %d cards total, %d relevant",
+            item["label"], len(cards), len(relevant)
+        )            
 
-        # 2. Try meta og:price tag
-        meta_price = soup.find("meta", {"property": "product:price:amount"})
-        if meta_price and meta_price.get("content"):
-            return float(meta_price["content"])
+        return {item["name"]: relevant}
 
     except Exception as e:
-        logger.warning("Quickmart scrape failed for %s: %s", slug, e)
+        logger.warning("[Search] %s failed: %s", item["label"], e)
+        return {item["name"]: []}
 
-    return None
 
-
-# ─────────────────────────────────────────────────────────────
-# TIER 2: AI HTML extraction
-# When we get HTML but can't parse price cleanly, pass to Claude
-# ─────────────────────────────────────────────────────────────
-async def _ai_extract_price_from_html(html: str, item_label: str, unit: str) -> float | None:
+async def _scrape_all_items(target_items: list[dict]) -> dict[str, list[dict]]:
     """
-    Ask AI to extract price from raw HTML.
-    Used when BeautifulSoup finds price candidates but they're ambiguous.
+    Run per-item searches concurrently.
+    Returns {item_name: [candidate products]}.
     """
-    # Truncate HTML to avoid token overload
-    truncated = html[:6000]
+    async with httpx.AsyncClient(
+        headers=HEADERS,
+        timeout=20.0,
+        follow_redirects=True,
+    ) as client:
+        # First hit the branch page to set any session state
+        try:
+            await client.get(f"{QUICKMART_BASE}/{BRANCH_ID}")
+        except Exception:
+            pass  # not critical
 
-    system_prompt = "You are a price extraction assistant for a Kenyan household cost tracker. Return ONLY valid JSON, nothing else."
+        tasks = [_search_item(client, item) for item in target_items]
+        results = await asyncio.gather(*tasks)
+
+    combined: dict[str, list[dict]] = {}
+    for r in results:
+        combined.update(r)
+    return combined
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TIER 2 — AI picks best match from scraped candidates (per item)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ai_pick_best_match(item: dict, candidates: list[dict]) -> float | None:
+    """
+    Ask AI to pick the best matching product for a basket item
+    from the scraped candidates list.
+    Returns the selected price or None.
+    """
+    if not candidates:
+        return None
+
+    candidate_text = "\n".join([
+        f"  {i+1}. {c['title']} — KES {c['price_kes']}"
+        for i, c in enumerate(candidates)
+    ])
+
     prompt = f"""
-From the HTML below, extract the CURRENT selling price in KES for:
-Item: {item_label} ({unit})
+        You are a Kenyan household cost tracker.
 
-Return ONLY valid JSON:
-{{
-  "price_kes": <float or null if not found>,
-  "confidence": "high" | "medium" | "low"
-}}
+        BASKET ITEM: {item['label']} ({item['unit']})
 
-HTML:
-{truncated}
-"""
+        SCRAPED PRODUCTS FROM QUICKMART:
+        {candidate_text}
+
+        Pick the single best match for the basket item above.
+        Rules:
+        - Match the unit as closely as possible ({item['unit']})
+        - Prefer the most common/affordable brand (not premium)
+        - Ignore products that are clearly wrong (wrong item type)
+        - If no good match, return null
+
+        Return ONLY valid JSON:
+        {{
+        "selected_index": <1-based integer or null>,
+        "price_kes": <float or null>,
+        "reason": "<one line>"
+        }}
+    """
     try:
-        data = call_ai(prompt, system_prompt=system_prompt, max_tokens=100)
+        data = call_ai(
+            prompt,
+            system_prompt="Return valid JSON only. No markdown. No explanation outside JSON.",
+            max_tokens=150,
+        )
         price = data.get("price_kes")
+        reason = data.get("reason", "")
         if price and float(price) > 5:
-            logger.info("[AI HTML extract] %s → KES %.2f (confidence: %s)", item_label, float(price), data.get("confidence"))
+            logger.info(
+                "[AI Match] %-20s → KES %.2f  (%s)",
+                item["label"], float(price), reason
+            )
             return float(price)
     except Exception as e:
-        logger.error("[AI HTML extract error] %s", e)
+        logger.warning("[AI Match] %s failed: %s", item["label"], e)
+
     return None
 
 
-# ─────────────────────────────────────────────────────────────
-# TIER 3: AI knowledge fallback (Batched)
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# TIER 3 — AI batch price fallback (for items with zero scrape results)
+# ─────────────────────────────────────────────────────────────────────────────
+
 async def _ai_batch_price_fallback(items: list[dict]) -> dict[str, float]:
     """
-    Ask AI for best estimates of market prices in Kenya for multiple items at once.
-    Returns a dictionary mapping item 'name' to the estimated price float.
+    One batched AI call for all items that returned zero search results.
+    Returns {item_name: price_kes}.
     """
+    if not items:
+        return {}
+
     today = datetime.utcnow().strftime("%B %Y")
-    
     items_text = "\n".join([
-        f"- Name: {item['name']}, Label: {item['label']}, Quantity: {item['unit']}, Context: {item.get('search_term', '')}" 
+        f"  - {item['name']} | {item['label']} | {item['unit']}"
         for item in items
     ])
 
-    system_prompt = "You are a Kenyan market price expert. Return ONLY valid JSON, nothing else."
     prompt = f"""
-Provide the current retail supermarket price in Nairobi, Kenya for the following items:
+        Current date: {today}
+        Location: Nairobi, Kenya — Quickmart / Naivas supermarket retail prices
 
-{items_text}
+        Estimate the current KES retail price for each item:
 
-Date: {today}
+        {items_text}
 
-Return ONLY valid JSON matching this exact structure:
-{{
-  "prices": {{
-    "<item_name>": <float, best estimate in KES>,
-    ...
-  }}
-}}
-"""
+        Return ONLY valid JSON:
+        {{
+        "prices": {{
+            "<item_name>": <float in KES>,
+            ...
+        }},
+        "confidence": "high" | "medium" | "low"
+        }}
+    """
     try:
-        data = call_ai(prompt, system_prompt=system_prompt, max_tokens=500)
-        prices = data.get("prices", {})
+        data = call_ai(
+            prompt,
+            system_prompt="You are a Kenyan retail price expert. Return valid JSON only.",
+            max_tokens=500,
+        )
+        raw = data.get("prices", {})
+        result = {}
         for item in items:
             name = item["name"]
-            price = prices.get(name)
-            if price is not None:
-                logger.info("[AI batch fallback] %s → KES %.2f", item["label"], float(price))
+            if name in raw and raw[name]:
+                result[name] = float(raw[name])
+                logger.info("[AI Fallback] %-20s → KES %.2f", item["label"], result[name])
             else:
-                logger.warning("[AI batch fallback] Missing price for %s", item["label"])
-        return {k: float(v) for k, v in prices.items() if v is not None}
+                logger.warning("[AI Fallback] No price for %s", item["label"])
+        return result
     except Exception as e:
-        logger.error("[AI batch fallback error] %s", e)
+        logger.error("[AI Fallback] Batch call failed: %s", e)
         return {}
 
 
-# ─────────────────────────────────────────────────────────────
-# MAIN FETCH LOGIC — per item
-# ─────────────────────────────────────────────────────────────
-async def fetch_item_scrape_only(item: dict) -> dict:
-    """
-    Fetch the current price for a single basket item via scrape only.
-    """
-    label = item["label"]
-    slug = item.get("quickmart_slug")
-    price = None
-    source = "unknown"
-
-    # ── Tier 1: Quickmart scrape ────────────────────────────
-    if slug:
-        price = await _scrape_quickmart_price(slug, label)
-        if price:
-            source = f"quickmart ({QUICKMART_BASE}/{slug})"
-
-    return {
-        "item": item,
-        "price": price,
-        "source": source
-    }
-
-
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # PUBLIC API
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+
 async def fetch_food_basket(items: list[dict] | None = None) -> list[dict]:
     """
-    Fetch current prices for all basket items concurrently.
-    First tries to scrape each item, then batches all failures into a single AI fallback request.
-    """    
+    Full pipeline:
+      1. Search Quickmart for each item individually (concurrent)
+      2. Pass candidates to AI for best-match selection (per item)
+      3. Batch AI fallback for any item with zero search results
+    """
     target_items = items or BASKET_ITEMS
-    logger.info("Fetching food basket prices for %d items...", len(target_items))
+    logger.info("Starting food basket fetch for %d items...", len(target_items))
 
-    # Phase 1: Fetch all items concurrently via scrape
-    tasks = [fetch_item_scrape_only(item) for item in target_items]
-    scrape_results = await asyncio.gather(*tasks, return_exceptions=True)
+    # ── Step 1: Scrape — per-item keyword search ──────────────────────────────
+    search_results = await _scrape_all_items(target_items)
 
-    valid_results = []
-    failed_items = []
+    # ── Step 2: AI match — pick best product from candidates ──────────────────
+    final_prices: dict[str, float] = {}
+    no_candidates: list[dict] = []
 
-    for result in scrape_results:
-        if isinstance(result, Exception):
-            logger.error("Scrape crashed: %s", result)
-            continue
-            
-        item = result["item"]
-        price = result["price"]
-        source = result["source"]
-        
-        if price is not None:
-            valid_results.append({
-                "name":       item["name"],
-                "price_kes":  round(price, 2),
-                "unit":       item["unit"],
-                "retailer":   "Quickmart" if "quickmart" in source else "UNKNOWN",
-                "created_at": datetime.utcnow().isoformat(),
-            })
+    for item in target_items:
+        candidates = search_results.get(item["name"], [])                
+        if candidates:
+            price = _ai_pick_best_match(item, candidates)
+            if price:
+                final_prices[item["name"]] = price
+            else:
+                # AI rejected all candidates — treat as missed
+                no_candidates.append(item)
         else:
-            failed_items.append(item)
+            no_candidates.append(item)
 
-    # Phase 2: Batch AI fallback
-    if failed_items:
-        logger.info("[Tier 1 ✗] Batching AI fallback for %d items...", len(failed_items))
-        ai_prices = await _ai_batch_price_fallback(failed_items)
-        
-        for item in failed_items:
-            price = ai_prices.get(item["name"], 0.0)
-            valid_results.append({
-                "name":       item["name"],
-                "price_kes":  round(price, 2) if price else 0.0,
-                "unit":       item["unit"],
-                "retailer":   "AI_ESTIMATE",
-                "created_at": datetime.utcnow().isoformat(),
-            })
+    logger.info(
+        "[Pipeline] Matched: %d | Needs fallback: %d",
+        len(final_prices), len(no_candidates)
+    )
+    
+    # ── Step 3: AI fallback for items with no usable candidates ───────────────
+    if no_candidates:
+        fallback_prices = await _ai_batch_price_fallback(no_candidates)
+        final_prices.update(fallback_prices)
 
-    logger.info("Food basket: %d items processed.", len(valid_results))
-    return valid_results
+    # ── Assemble rows ─────────────────────────────────────────────────────────
+    now = datetime.utcnow().isoformat()
+    rows = []
+
+    for item in target_items:
+        name = item["name"]
+        price = final_prices.get(name)
+
+        if price is None:
+            logger.error("No price resolved for %s — skipping row.", item["label"])
+            continue
+
+        had_candidates = bool(search_results.get(name))
+        source   = f"quickmart.co.ke/products/search?keyword-{item['search_keyword'].replace(' ', '+')}&pagesize-30"
+        retailer = "Quickmart"
+
+        if name in [i["name"] for i in no_candidates]:
+            source   = "AI_FALLBACK"
+            retailer = "AI_ESTIMATE"
+
+        rows.append({
+            "name":       name,            
+            "price_kes":  round(float(price), 2),
+            "unit":       item["unit"],            
+            "retailer":   retailer,
+            "source":     source,            
+        })
+
+    logger.info("Food basket complete: %d/%d items resolved.", len(rows), len(target_items))
+    return rows
 
 
 async def store_food_basket(basket: list[dict]) -> None:
     """Insert fetched basket prices into Supabase food_basket table."""
     db = get_db()
-    rows = [
-        {
-            "name":       r["name"],
-            "price_kes":  r["price_kes"],
-            "unit":       r["unit"],
-            "retailer":   r["retailer"],
-            "created_at": r["created_at"],
-        }
-        for r in basket
-    ]
-    db.table("food_basket").insert(rows).execute()
-    logger.info("Stored %d food basket items.", len(rows))
+    db.table("food_basket").insert(basket).execute()
+    logger.info("Stored %d food basket items.", len(basket))
 
 
 async def get_latest_basket() -> list[dict]:
-    """
-    Fetch the most recent price for each item from Supabase.
-    Returns one row per unique item name (latest fetched_at).
-    """
+    """Fetch most recent price per item from Supabase."""
     db = get_db()
-    # Supabase doesn't do DISTINCT ON natively — fetch last N and dedupe in Python
     result = (
         db.table("food_basket")
         .select("*")
-        .order("created_at", desc=True)
-        .limit(len(BASKET_ITEMS) * 3)   # buffer for dupes
+        .order("fetched_at", desc=True)
+        .limit(len(BASKET_ITEMS) * 3)
         .execute()
     )
     seen: set[str] = set()
@@ -378,12 +522,7 @@ async def get_latest_basket() -> list[dict]:
 
 
 async def run_food_fetcher(custom_items: list[dict] | None = None) -> list[dict]:
-    """
-    Main entry point — fetch + store all basket prices.
-    Called by cron and /fetch/food API route.
-
-    Pass custom_items to override the default basket (e.g. fetch only one category).
-    """
+    """Main entry point — fetch + store all basket prices."""
     basket = await fetch_food_basket(custom_items)
     await store_food_basket(basket)
     return basket

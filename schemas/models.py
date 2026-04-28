@@ -31,6 +31,7 @@ class FoodItem(BaseModel):
     price_kes: float
     unit: str                      # e.g. "2kg", "1kg", "1L"
     retailer: Optional[str] = None    
+    source: Optional[str] = None
     created_at: Optional[datetime] = None
 
 

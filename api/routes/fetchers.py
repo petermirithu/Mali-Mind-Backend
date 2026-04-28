@@ -6,7 +6,7 @@ Protect with a secret header in production.
 from fastapi import APIRouter, Header, HTTPException
 from fetchers.fuel import run_fuel_fetcher
 from fetchers.forex import run_forex_fetcher
-from fetchers.food import seed_food_basket
+from fetchers.food import run_food_fetcher
 from ai.insights import run_insight_pipeline
 from core.config import settings
 
@@ -39,6 +39,6 @@ async def trigger_forex(x_cron_secret: str = Header(...)):
 @router.post("/food")
 async def trigger_food(x_cron_secret: str = Header(...)):
     _auth(x_cron_secret)
-    data = await seed_food_basket()
+    data = await run_food_fetcher()
     insight = await run_insight_pipeline("food_update", {"items": data})
     return {"status": "ok", "seeded": len(data), "insight": insight["summary"]}

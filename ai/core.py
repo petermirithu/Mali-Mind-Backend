@@ -9,11 +9,17 @@ from core.config import settings
 import json
 import re
 import logging
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 # ── Clients ───────────────────────────────────────────────────────────────────
-gemini_client = genai.Client(api_key=settings.gemini_api_key)
+huggingface_client = None
+if settings.huggingface_api_key:
+    huggingface_client = OpenAI(
+        base_url="https://router.huggingface.co/v1",
+        api_key=settings.huggingface_api_key,
+    )
 
 openrouter_client = None
 if settings.openrouter_api_key:
@@ -23,9 +29,8 @@ if settings.openrouter_api_key:
     )
 
 # ── Models ────────────────────────────────────────────────────────────────────
-# GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_MODEL = "gemini-2.5-pro"
-OPENROUTER_MODEL = "openrouter/free"
+HUGGINGFACE_MODEL = "openai/gpt-oss-120b:groq"
+OPENROUTER_MODEL = "openai/gpt-oss-120b:free"
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -46,42 +51,23 @@ def _parse_json_response(raw: str) -> dict:
             return json.loads(match.group())
         raise
 
+def call_huggingface(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
+    """Call HuggingFace free models and return parsed JSON."""            
+    if not huggingface_client:
+        raise RuntimeError("HuggingFace API key not configured")
 
-def call_gemini(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
-    """Call Gemini 2.5 Flash and return parsed JSON. Retries once on malformed JSON."""
-    config = types.GenerateContentConfig(
-        max_output_tokens=max_tokens,
-        temperature=0.5,
-    )
+    messages = []
     if system_prompt:
-        config.system_instruction = system_prompt
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
 
-    response = gemini_client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=config,
+    completion = huggingface_client.chat.completions.create(
+        model=HUGGINGFACE_MODEL,
+        max_tokens=max_tokens,
+        temperature=0.5,
+        messages=messages                    
     )
-    try:
-        return _parse_json_response(response.text)
-    except json.JSONDecodeError as parse_err:
-        # Self-repair: ask Gemini to fix its own malformed JSON
-        logger.warning("Gemini returned invalid JSON, requesting self-repair...")
-        repair_prompt = (
-            f"The following text was supposed to be valid JSON but has syntax errors.\n"
-            f"System prompt was: {system_prompt}\n"
-            f"Initial prompt was: {prompt}\n"
-            f"Response was: {response.text}\n"
-            f"Fix the response, make sure it answers the prompt and return ONLY the corrected JSON, NO explanation!\n\n"            
-        )
-        repair_response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=repair_prompt,
-            config=types.GenerateContentConfig(
-                max_output_tokens=max_tokens,
-                temperature=0.0,
-            ),
-        )
-        return _parse_json_response(repair_response.text)
+    return _parse_json_response(completion.choices[0].message.content)
 
 
 def call_openrouter(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
@@ -98,27 +84,23 @@ def call_openrouter(prompt: str, system_prompt: str = "", max_tokens: int = 500)
         model=OPENROUTER_MODEL,
         max_tokens=max_tokens,
         temperature=0.5,
-        messages=messages,
-        # extra_headers={
-            # "HTTP-Referer": "https://malimind.onrender.com",
-            # "X-Title": "MaliMind",
-        # },
+        messages=messages
     )
     return _parse_json_response(response.choices[0].message.content)
 
 
 def call_ai(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
     """
-    Call AI with Gemini as primary and OpenRouter as fallback.
+    Call AI with HuggingFace as primary and OpenRouter as fallback.
     Returns parsed JSON dict.
     """
-    # ── Primary: Gemini ───────────────────────────────────────────────────
+    # ── Primary: HuggingFace ───────────────────────────────────────────────────
     try:
-        result = call_gemini(prompt, system_prompt, max_tokens)
-        logger.info("AI call succeeded via Gemini 2.5 Flash")
+        result = call_huggingface(prompt, system_prompt, max_tokens)
+        logger.info("AI call succeeded via HuggingFace")
         return result
     except Exception as e:
-        logger.warning("Gemini failed (%s), falling back to OpenRouter...", e)
+        logger.warning("HuggingFace failed (%s), falling back to OpenRouter...", e)
 
     # ── Fallback: OpenRouter ────────────────────────────────
     try:
