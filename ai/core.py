@@ -63,7 +63,7 @@ def call_huggingface(prompt: str, system_prompt: str = "", max_tokens: int = 500
 
     completion = huggingface_client.chat.completions.create(
         model=HUGGINGFACE_MODEL,
-        max_tokens=max_tokens,
+        # max_tokens=max_tokens,
         temperature=0.5,
         messages=messages                    
     )
@@ -82,19 +82,49 @@ def call_openrouter(prompt: str, system_prompt: str = "", max_tokens: int = 500)
 
     response = openrouter_client.chat.completions.create(
         model=OPENROUTER_MODEL,
-        max_tokens=max_tokens,
+        # max_tokens=max_tokens,
         temperature=0.5,
         messages=messages
     )
     return _parse_json_response(response.choices[0].message.content)
 
+def call_azure_openai(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
+    """Call Azure OpenAI models and return parsed JSON."""
+    if not settings.azure_foundry_api_key or not settings.azure_foundry_project_url:
+        raise RuntimeError("Azure Foundry API key or project URL not configured")
+
+    client = OpenAI(
+        base_url=settings.azure_foundry_project_url,
+        api_key=settings.azure_foundry_api_key,
+    )
+
+    messages = [] 
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    response = client.chat.completions.create(
+        model=settings.azure_foundry_project_model_name,
+        # max_tokens=max_tokens,
+        temperature=0.5,
+        messages=messages
+    )
+    return _parse_json_response(response.choices[0].message.content)
 
 def call_ai(prompt: str, system_prompt: str = "", max_tokens: int = 500) -> dict:
     """
-    Call AI with HuggingFace as primary and OpenRouter as fallback.
+    Call AI with Azure OpenAI as primary, HuggingFace and OpenRouter as fallback.
     Returns parsed JSON dict.
     """
-    # ── Primary: HuggingFace ───────────────────────────────────────────────────
+    # ── Primary: Azure OpenAI ───────────────────────────────────────────────────
+    try:        
+        result = call_azure_openai(prompt, system_prompt, max_tokens)
+        logger.info("AI call succeeded via Azure OpenAI")
+        return result
+    except Exception as e:
+        logger.warning("Azure OpenAI call failed (%s), falling back to HuggingFace/OpenRouter...", e)
+    
+    # ── Fallback: HuggingFace ───────────────────────────────────────────────────
     try:
         result = call_huggingface(prompt, system_prompt, max_tokens)
         logger.info("AI call succeeded via HuggingFace")

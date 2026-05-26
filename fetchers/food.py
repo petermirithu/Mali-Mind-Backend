@@ -99,7 +99,7 @@ BASKET_ITEMS = [
         "label":          "Milk (Fresh)",
         "unit":           "1L",
         "category":       "dairy",
-        "search_keyword": "fresh milk 1l",
+        "search_keyword": "fresh milk",
         "match_keywords": ["milk"],
     },
     {
@@ -117,15 +117,7 @@ BASKET_ITEMS = [
         "category":       "baked",
         "search_keyword": "white bread loaf",
         "match_keywords": ["bread"],
-    },
-    {
-        "name":           "beans",
-        "label":          "Beans (Rose Coco)",
-        "unit":           "1kg",
-        "category":       "legumes",
-        "search_keyword": "beans 1kg",
-        "match_keywords": ["bean"],
-    },
+    },    
     {
         "name":           "tomatoes",
         "label":          "Tomatoes",
@@ -257,15 +249,16 @@ async def _search_item(client: httpx.AsyncClient, item: dict) -> dict:
         if resp.status_code != 200:
             logger.warning("[Search] %s → HTTP %s", item["label"], resp.status_code)
             return {item["name"]: []}
-                        
-        cards = _parse_product_cards(resp.text)        
+                                    
+        cards = _parse_product_cards(resp.text)                
 
         # Filter: at least one match_keyword must appear in title
         match_kws = item.get("match_keywords", [])
+        
         relevant = [
             c for c in cards
             if any(kw.lower() in c["title"].lower() for kw in match_kws)
-        ]
+        ]        
 
         logger.info(
             "[Search] %-20s → %d cards total, %d relevant",
@@ -348,7 +341,7 @@ def _ai_pick_best_match(item: dict, candidates: list[dict]) -> float | None:
         data = call_ai(
             prompt,
             system_prompt="Return valid JSON only. No markdown. No explanation outside JSON.",
-            max_tokens=150,
+            max_tokens=350,
         )
         price = data.get("price_kes")
         reason = data.get("reason", "")
@@ -424,14 +417,14 @@ async def _ai_batch_price_fallback(items: list[dict]) -> dict[str, float]:
 # PUBLIC API
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def fetch_food_basket(items: list[dict] | None = None) -> list[dict]:
+async def fetch_food_basket() -> list[dict]:
     """
     Full pipeline:
       1. Search Quickmart for each item individually (concurrent)
       2. Pass candidates to AI for best-match selection (per item)
       3. Batch AI fallback for any item with zero search results
     """
-    target_items = items or BASKET_ITEMS
+    target_items = BASKET_ITEMS
     logger.info("Starting food basket fetch for %d items...", len(target_items))
 
     # ── Step 1: Scrape — per-item keyword search ──────────────────────────────
@@ -442,15 +435,20 @@ async def fetch_food_basket(items: list[dict] | None = None) -> list[dict]:
     no_candidates: list[dict] = []
 
     for item in target_items:
+        print(f"Processing {item['name']}")
+
         candidates = search_results.get(item["name"], [])                
         if candidates:
             price = _ai_pick_best_match(item, candidates)
             if price:
                 final_prices[item["name"]] = price
+                print(f"Successfully matched {item['name']} with price {price}")
             else:
                 # AI rejected all candidates — treat as missed
+                print(f"Failed to match {item['name']}")
                 no_candidates.append(item)
         else:
+            print(f"No candidates found for {item['name']}")
             no_candidates.append(item)
 
     logger.info(
@@ -462,6 +460,7 @@ async def fetch_food_basket(items: list[dict] | None = None) -> list[dict]:
     if no_candidates:
         fallback_prices = await _ai_batch_price_fallback(no_candidates)
         final_prices.update(fallback_prices)
+        print(f"Successfully matched {fallback_prices.keys()} with price {fallback_prices.values()}")
 
     # ── Assemble rows ─────────────────────────────────────────────────────────
     now = datetime.utcnow().isoformat()
@@ -498,8 +497,13 @@ async def fetch_food_basket(items: list[dict] | None = None) -> list[dict]:
 async def store_food_basket(basket: list[dict]) -> None:
     """Insert fetched basket prices into Supabase food_basket table."""
     db = get_db()
-    db.table("food_basket").insert(basket).execute()
-    logger.info("Stored %d food basket items.", len(basket))
+
+    # Prepare a row with prices mapped to their respective columns
+    row = {item['name']: item['price_kes'] for item in basket}
+    row['created_at'] = datetime.utcnow().isoformat()
+
+    db.table("food_basket").insert(row).execute()
+    logger.info("Stored food basket prices: %s", row)
 
 
 async def get_latest_basket() -> list[dict]:
@@ -521,8 +525,8 @@ async def get_latest_basket() -> list[dict]:
     return latest
 
 
-async def run_food_fetcher(custom_items: list[dict] | None = None) -> list[dict]:
-    """Main entry point — fetch + store all basket prices."""
-    basket = await fetch_food_basket(custom_items)
+async def run_food_fetcher() -> list[dict]:
+    """Main entry point — fetch + store all basket prices."""    
+    basket = await fetch_food_basket()
     await store_food_basket(basket)
     return basket

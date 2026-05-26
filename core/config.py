@@ -14,6 +14,10 @@ class Settings(BaseSettings):
 
     cron_secret: str
 
+    azure_foundry_api_key: str
+    azure_foundry_project_url: str
+    azure_foundry_project_model_name: str
+
     class Config:
         env_file = ".env"
 

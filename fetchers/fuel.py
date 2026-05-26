@@ -151,7 +151,7 @@ async def _ai_fallback(city: str) -> dict:
         but set confidence accordingly. Do NOT add explanations outside the JSON.
     """
 
-    data = call_ai(prompt, max_tokens=300)
+    data = call_ai(prompt, max_tokens=500)
 
     logger.info(
         "AI fallback prices for %s — confidence: %s, estimated: %s",
