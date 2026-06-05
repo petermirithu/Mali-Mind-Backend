@@ -1,86 +1,60 @@
-from fastapi import APIRouter, HTTPException
-from datetime import datetime
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from datetime import datetime, timedelta
+from api.services.impact import ImpactService
 from db.client import get_db
-from schemas.models import ImpactResponse, ImpactItem
-from ai.insights import generate_insight
+from schemas.models import ImpactResponse, ImpactItem, ImpactProfileRequest, FullImpactResponse
+from tasks.scheduler import archive_previous_month_spending
 
 router = APIRouter(prefix="/impact", tags=["impact"])
 
-
-def compute_change_pct(current: float, previous: float) -> float:
-    if previous == 0:
-        return 0.0
-    return round(((current - previous) / previous) * 100, 2)
-
-
 @router.get("/", response_model=ImpactResponse)
-async def get_impact():
-    """
-    Computes impact of latest price changes on a Kenyan household.
-    Powers the Impact Page on mobile.
-    """
-    db = get_db()
-
+async def get_impact():    
     try:
-        # Get 2 latest fuel records to compute change
-        fuel_res = db.table("fuel_prices").select("*").order("created_at", desc=True).limit(2).execute()
-        fuel_data = fuel_res.data
-
-        # Get 2 latest forex records
-        forex_res = db.table("forex_rates").select("*").order("created_at", desc=True).limit(2).execute()
-        forex_data = forex_res.data
-
-        items: list[ImpactItem] = []
-        data_for_ai = {}
-
-        # ── Fuel Impact ───────────────────────────────────────────────────────
-        if len(fuel_data) >= 2:
-            curr_petrol = fuel_data[0]["petrol_per_litre"]
-            prev_petrol = fuel_data[1]["petrol_per_litre"]
-            pct = compute_change_pct(curr_petrol, prev_petrol)
-            direction = "up" if pct > 0 else ("down" if pct < 0 else "stable")
-            # Assume avg 30L/month fuel consumption → transport cost
-            monthly_impact = round(30 * (curr_petrol - prev_petrol), 2)
-
-            items.append(ImpactItem(
-                category="Transport / Fuel",
-                change_pct=pct,
-                direction=direction,
-                monthly_estimate_kes=monthly_impact,
-                explanation=f"Petrol is KES {curr_petrol}/L ({'+' if pct > 0 else ''}{pct}%). "
-                            f"Expect monthly transport costs to {'rise' if pct > 0 else 'fall'} "
-                            f"by ~KES {abs(monthly_impact):.0f}.",
-            ))
-            data_for_ai["fuel"] = {"current": curr_petrol, "previous": prev_petrol, "change_pct": pct}
-
-        # ── Forex Impact ──────────────────────────────────────────────────────
-        if len(forex_data) >= 2:
-            curr_usd = forex_data[0]["usd_kes"]
-            prev_usd = forex_data[1]["usd_kes"]
-            pct = compute_change_pct(curr_usd, prev_usd)
-            direction = "up" if pct > 0 else ("down" if pct < 0 else "stable")
-
-            items.append(ImpactItem(
-                category="Imports / USD Rate",
-                change_pct=pct,
-                direction=direction,
-                monthly_estimate_kes=None,
-                explanation=f"USD/KES is {curr_usd} ({'+' if pct > 0 else ''}{pct}%). "
-                            f"Imported goods (electronics, fuel, medicine) will likely "
-                            f"{'cost more' if pct > 0 else 'become cheaper'}.",
-            ))
-            data_for_ai["forex"] = {"current": curr_usd, "previous": prev_usd, "change_pct": pct}
-
-        # ── AI Summary ────────────────────────────────────────────────────────
-        ai_insight = await generate_insight("impact_request", data_for_ai)
-        overall_score = ai_insight.get("impact_score", 0.0)
+        results = ImpactService.get_impact_data()
 
         return ImpactResponse(
-            items=items,
-            overall_score=overall_score,
-            ai_summary=ai_insight["summary"],
+            items=results["items"],
+            overall_score=results["overall_score"],
+            ai_summary=results["ai_summary"],
             computed_at=datetime.utcnow(),
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{user_id}", response_model=FullImpactResponse)
+async def get_full_impact(user_id: str, background_tasks: BackgroundTasks):
+    """
+    Comprehensive impact page endpoint for mobile app.
+    Returns all impact metrics, breakdown, predictions, and recommendations.
+    
+    Args:
+        user_id: The user's unique identifier
+        background_tasks: FastAPI background tasks
+    
+    Returns:
+        FullImpactResponse with complete impact data
+    """
+    try:
+        db = get_db()                
+        month_to_archive = datetime.utcnow().replace(day=1)
+        
+        # Check if monthly record exists for the user for the previous month
+        record = db.table("monthly_spending").select("user_id").eq("user_id", user_id).eq("month", month_to_archive.isoformat()).execute()
+        
+        if not record.data:
+            background_tasks.add_task(archive_previous_month_spending)
+
+        result = await ImpactService.get_full_impact_data(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/profiles")
+async def save_impact_profile(profile: ImpactProfileRequest):
+    try:                        
+        await ImpactService.save_impact_profile_items(profile)        
+        return {"status": "ok", "message": "Impact profile saved successfully."}
+    except Exception as e:
+        print("Error saving impact profile:", str(e))  # Debug log
+        raise HTTPException(status_code=400, detail=str(e))

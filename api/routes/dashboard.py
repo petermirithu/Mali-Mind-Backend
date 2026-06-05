@@ -25,4 +25,4 @@ async def get_dashboard():
             overall_metrics=results["overall_metrics"],
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
