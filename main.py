@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import dashboard, impact, feed, fetchers
 from core.config import settings
+from tasks.scheduler import start_scheduler, stop_scheduler
 
 fast_api_app = FastAPI(
     title="MaliMind API",
@@ -15,6 +16,17 @@ fast_api_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Startup/Shutdown Events ────────────────────────────────────────────────────────────
+@fast_api_app.on_event("startup")
+async def startup_event():
+    """Initialize background scheduler on app startup"""
+    start_scheduler()
+
+@fast_api_app.on_event("shutdown")
+async def shutdown_event():
+    """Stop background scheduler on app shutdown"""
+    stop_scheduler()
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 fast_api_app.include_router(dashboard.router)
