@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import dashboard, impact, feed, fetchers
+from api.routes import dashboard, impact, feed, fetchers, mali_chat
 from core.config import settings
 from tasks.scheduler import start_scheduler, stop_scheduler
 
@@ -33,7 +33,7 @@ fast_api_app.include_router(dashboard.router)
 fast_api_app.include_router(impact.router)
 fast_api_app.include_router(feed.router)
 fast_api_app.include_router(fetchers.router)
-
+fast_api_app.include_router(mali_chat.router)
 
 @fast_api_app.get("/", tags=["health"])
 async def root():

@@ -2,14 +2,13 @@
 AI Core — centralised Gemini + OpenRouter clients.
 All AI calls across the app go through here.
 """
-from openai import OpenAI
 from google import genai
 from google.genai import types
 from core.config import settings
 import json
 import re
 import logging
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -93,16 +92,17 @@ def call_azure_openai(prompt: str, system_prompt: str = "", max_tokens: int = 50
     if not settings.azure_foundry_api_key or not settings.azure_foundry_project_url:
         raise RuntimeError("Azure Foundry API key or project URL not configured")
 
-    client = OpenAI(
-        base_url=settings.azure_foundry_project_url,
-        api_key=settings.azure_foundry_api_key,
+    client = AzureOpenAI(
+        api_version=settings.azure_foundry_project_api_version,
+        azure_endpoint=settings.azure_foundry_project_url,
+        api_key=settings.azure_foundry_api_key,        
     )
-
+        
     messages = [] 
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-
+        
     response = client.chat.completions.create(
         model=settings.azure_foundry_project_model_name,
         # max_tokens=max_tokens,

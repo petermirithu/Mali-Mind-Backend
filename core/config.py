@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     azure_foundry_api_key: str
     azure_foundry_project_url: str
     azure_foundry_project_model_name: str
+    azure_foundry_project_api_version: str
 
     class Config:
         env_file = ".env"
