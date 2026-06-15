@@ -62,11 +62,12 @@ class ImpactItem(BaseModel):
     change_pct: float
     direction: str                 # "up" | "down" | "stable"
     monthly_estimate_kes: Optional[float]
-    explanation: str
+    explanation: str 
 
 class FeedItem(BaseModel):
     id: Optional[int] = None
     title: str
+    category: str
     what_happened: str
     why_it_happened: str
     what_it_means: str

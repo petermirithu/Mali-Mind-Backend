@@ -61,9 +61,14 @@ async def generate_insight(trigger: str, data: dict) -> dict:
 async def store_insight(insight: dict) -> None:
     db = get_db()
     insight_to_store = {**insight, "affected_areas": json.dumps(insight["affected_areas"])}
-    db.table("ai_insights").insert(insight_to_store).execute()
-    logger.info("Insight stored: %s", insight["summary"][:60])
+    
+    # Check if an insight with the same trigger already exists, if so update instead of insert
+    existing = db.table("ai_insights").select("*").eq("trigger", insight["trigger"]).execute()
+    if existing.data:
+        # delete old insight before inserting new one to avoid duplicates
+        db.table("ai_insights").delete().eq("trigger", insight["trigger"]).execute()                
 
+    db.table("ai_insights").insert(insight_to_store).execute()        
 
 async def run_insight_pipeline(trigger: str, data: dict) -> dict:
     insight = await generate_insight(trigger, data)

@@ -8,6 +8,7 @@ from fetchers.fuel import run_fuel_fetcher
 from fetchers.forex import run_forex_fetcher
 from fetchers.food import run_food_fetcher
 from ai.insights import run_insight_pipeline
+from fetchers.feed import run_feed_fetcher
 from core.config import settings
 
 router = APIRouter(prefix="/fetch", tags=["fetchers"])
@@ -42,3 +43,9 @@ async def trigger_food(x_cron_secret: str = Header(...)):
     data = await run_food_fetcher()
     insight = await run_insight_pipeline("food_update", {"items": data})
     return {"status": "ok", "seeded": len(data), "insight": insight["summary"]}
+
+@router.post("/feed")
+async def trigger_feed(x_cron_secret: str = Header(...)):
+    _auth(x_cron_secret)    
+    data = await run_feed_fetcher()        
+    return data
