@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     azure_foundry_project_model_name: str
     azure_foundry_project_api_version: str
 
+    smtp_host: str
+    smtp_port: str
+    smtp_username: str
+    smtp_password: str
+    from_email: str
+    from_name: str
+
     class Config:
         env_file = ".env"
 

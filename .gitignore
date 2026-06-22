@@ -2,3 +2,4 @@ virtual/
 .env
 supabase_schema.sql
 __pycache__/
+firebase-service-account.json
