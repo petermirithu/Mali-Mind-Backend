@@ -1,8 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from datetime import datetime, timedelta
-from api.services.impact import ImpactService
+from datetime import datetime
+from api.services.impact import FullImpactResponse, ImpactProfileRequest, ImpactResponse, ImpactService
 from db.client import get_db
-from schemas.models import ImpactResponse, ImpactItem, ImpactProfileRequest, FullImpactResponse
 from tasks.scheduler import archive_previous_month_spending
 
 router = APIRouter(prefix="/impact", tags=["impact"])
@@ -36,18 +35,26 @@ async def get_full_impact(user_id: str, background_tasks: BackgroundTasks):
         FullImpactResponse with complete impact data
     """
     try:
-        db = get_db()                
-        month_to_archive = datetime.utcnow().replace(day=1)
+        db = get_db()                        
         
-        # Check if monthly record exists for the user for the previous month
-        record = db.table("monthly_spending").select("user_id").eq("user_id", user_id).eq("month", month_to_archive.isoformat()).execute()
+        # Check if monthly record exists for the user for the previous month        
+        month_to_archive = datetime.utcnow().date().replace(day=1).isoformat()
+        record = (
+            db.table("monthly_spending")
+            .select("user_id")
+            .eq("user_id", user_id)
+            .eq("month", month_to_archive)
+            .limit(1)
+            .execute()
+        )
         
-        if not record.data:
-            background_tasks.add_task(archive_previous_month_spending)
+        if not record.data:            
+            background_tasks.add_task(archive_previous_month_spending, int(user_id))
 
         result = await ImpactService.get_full_impact_data(user_id)
         return result
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/profiles")

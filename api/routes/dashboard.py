@@ -1,7 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from datetime import datetime
-from api.services.dashboard import DashboardService
-from schemas.models import DashboardResponse
+from api.services.dashboard import DashboardResponse, DashboardService
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 

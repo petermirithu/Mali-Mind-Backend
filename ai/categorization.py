@@ -4,7 +4,6 @@ Uses LLM to intelligently categorize custom spending items and determine
 which economic indicators (fuel, forex, food) affect them.
 """
 import json
-from schemas.models import CustomCategoryAnalysis
 from ai.insights import generate_insight
 
 class CustomCategoryClassifier:
@@ -14,7 +13,7 @@ class CustomCategoryClassifier:
     ECONOMIC_INDICATORS = ["fuel", "forex", "food_basket"]
     
     @staticmethod
-    async def classify_custom_items(custom_categories: list[dict]) -> list[CustomCategoryAnalysis]:
+    async def classify_custom_items(custom_categories: list[dict]):
         """
         Analyze custom spending items and classify them.
         
@@ -22,7 +21,7 @@ class CustomCategoryClassifier:
             custom_categories: List of custom items, each with 'label' and 'value' (cost)
         
         Returns:
-            List of CustomCategoryAnalysis with AI classification and impact analysis
+            List of with AI classification and impact analysis
         """
         if not custom_categories:
             return []
@@ -50,7 +49,7 @@ class CustomCategoryClassifier:
         return classifications
     
     @staticmethod
-    async def _classify_single_item(item_name: str, monthly_cost: float) -> CustomCategoryAnalysis:
+    async def _classify_single_item(item_name: str, monthly_cost: float):
         """
         Classify a single custom spending item using AI.
         """
@@ -87,16 +86,16 @@ class CustomCategoryClassifier:
             # Parse response
             classification_data = CustomCategoryClassifier._parse_ai_response(ai_response)
             
-            return CustomCategoryAnalysis(
-                custom_item_name=item_name,
-                classified_category=classification_data.get("classified_category", "Other"),
-                monthly_cost=monthly_cost,
-                affected_by_fuel=classification_data.get("affected_by_fuel", False),
-                affected_by_forex=classification_data.get("affected_by_forex", False),
-                affected_by_food=classification_data.get("affected_by_food", False),
-                estimated_impact_pct=classification_data.get("estimated_impact_pct", 0),
-                reasoning=classification_data.get("reasoning", "Classified by AI")
-            )
+            return {
+                "custom_item_name": item_name,
+                "classified_category": classification_data.get("classified_category", "Other"),
+                "monthly_cost": monthly_cost,
+                "affected_by_fuel": classification_data.get("affected_by_fuel", False),
+                "affected_by_forex": classification_data.get("affected_by_forex", False),
+                "affected_by_food": classification_data.get("affected_by_food", False),
+                "estimated_impact_pct": classification_data.get("estimated_impact_pct", 0),
+                "reasoning": classification_data.get("reasoning", "Classified by AI")
+            }
             
         except Exception as e:
             # Fallback classification if AI fails
@@ -124,7 +123,7 @@ class CustomCategoryClassifier:
         return {}
     
     @staticmethod
-    def _fallback_classification(item_name: str, monthly_cost: float) -> CustomCategoryAnalysis:
+    def _fallback_classification(item_name: str, monthly_cost: float):
         """
         Fallback classification using keyword matching when AI fails.
         """
@@ -133,76 +132,76 @@ class CustomCategoryClassifier:
         # Fuel/Transport keywords
         if any(kw in item_lower for kw in ["fuel", "petrol", "diesel", "transport", "taxi", "matatu", 
                                             "uber", "boda", "motorcycle", "parking", "toll", "car"]):
-            return CustomCategoryAnalysis(
-                custom_item_name=item_name,
-                classified_category="Transport",
-                monthly_cost=monthly_cost,
-                affected_by_fuel=True,
-                affected_by_forex=False,
-                affected_by_food=False,
-                estimated_impact_pct=70,
-                reasoning="Matched transport keywords"
-            )
+            return {
+                "custom_item_name": item_name,
+                "classified_category": "Transport",
+                "monthly_cost": monthly_cost,
+                "affected_by_fuel": True,
+                "affected_by_forex": False,
+                "affected_by_food": False,
+                "estimated_impact_pct": 70,
+                "reasoning": "Matched transport keywords"
+            }
         
         # Food keywords
         elif any(kw in item_lower for kw in ["food", "grocery", "grocery", "vegetables", "fruits", 
                                               "meat", "fish", "cooking", "meal", "lunch", "dinner"]):
-            return CustomCategoryAnalysis(
-                custom_item_name=item_name,
-                classified_category="Food & Groceries",
-                monthly_cost=monthly_cost,
-                affected_by_fuel=False,
-                affected_by_forex=False,
-                affected_by_food=True,
-                estimated_impact_pct=60,
-                reasoning="Matched food keywords"
-            )
+            return {
+                "custom_item_name": item_name,
+                "classified_category": "Food & Groceries",
+                "monthly_cost": monthly_cost,
+                "affected_by_fuel": False,
+                "affected_by_forex": False,
+                "affected_by_food": True,
+                "estimated_impact_pct": 60,
+                "reasoning": "Matched food keywords"
+            }
         
         # Utilities keywords
         elif any(kw in item_lower for kw in ["electricity", "water", "gas", "generator", "diesel-gen",
                                               "solar", "power", "utility", "bill", "energy"]):
-            return CustomCategoryAnalysis(
-                custom_item_name=item_name,
-                classified_category="Utilities",
-                monthly_cost=monthly_cost,
-                affected_by_fuel=True,
-                affected_by_forex=True,
-                affected_by_food=False,
-                estimated_impact_pct=50,
-                reasoning="Matched utilities keywords"
-            )
+            return {
+                "custom_item_name": item_name,
+                "classified_category": "Utilities",
+                "monthly_cost": monthly_cost,
+                "affected_by_fuel": True,
+                "affected_by_forex": True,
+                "affected_by_food": False,
+                "estimated_impact_pct": 50,
+                "reasoning": "Matched utilities keywords"
+            }
         
         # Imported/Forex keywords
         elif any(kw in item_lower for kw in ["subscription", "wifi", "internet", "netflix", "spotify",
                                               "insurance", "medicine", "laptop", "phone", "device",
                                               "imported", "amazon", "online"]):
-            return CustomCategoryAnalysis(
-                custom_item_name=item_name,
-                classified_category="Other",
-                monthly_cost=monthly_cost,
-                affected_by_fuel=False,
-                affected_by_forex=True,
-                affected_by_food=False,
-                estimated_impact_pct=40,
-                reasoning="Likely forex-affected import"
-            )
+            return {
+                "custom_item_name": item_name,
+                "classified_category": "Other",
+                "monthly_cost": monthly_cost,
+                "affected_by_fuel": False,
+                "affected_by_forex": True,
+                "affected_by_food": False,
+                "estimated_impact_pct": 40,
+                "reasoning": "Likely forex-affected import"
+            }
         
         # Default: Other
         else:
-            return CustomCategoryAnalysis(
-                custom_item_name=item_name,
-                classified_category="Other",
-                monthly_cost=monthly_cost,
-                affected_by_fuel=False,
-                affected_by_forex=False,
-                affected_by_food=False,
-                estimated_impact_pct=20,
-                reasoning="Classified as Other (non-essential)"
-            )
+            return {
+                "custom_item_name": item_name,
+                "classified_category": "Other",
+                "monthly_cost": monthly_cost,
+                "affected_by_fuel": False,
+                "affected_by_forex": False,
+                "affected_by_food": False,
+                "estimated_impact_pct": 20,
+                "reasoning": "Classified as Other (non-essential)"
+            }
     
     @staticmethod
     def calculate_custom_impact(
-        custom_analysis: CustomCategoryAnalysis,
+        custom_analysis: dict,
         fuel_change_pct: float,
         forex_change_pct: float,
         food_change_pct: float

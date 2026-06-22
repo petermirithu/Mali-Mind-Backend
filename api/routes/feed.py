@@ -1,8 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from db.client import get_db
-from schemas.models import FeedItem
 from ai.insights import generate_insight
-from api.services.feed import FeedService
+from api.services.feed import FeedService, FeedItem
 
 router = APIRouter(prefix="/feed", tags=["feed"])
 
