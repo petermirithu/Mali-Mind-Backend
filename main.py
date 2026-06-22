@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import dashboard, impact, feed, fetchers, mali_chat
+from api.routes import auth, dashboard, impact, feed, fetchers, mali_chat, profile
 from core.config import settings
 from tasks.scheduler import start_scheduler, stop_scheduler
 
 fast_api_app = FastAPI(
-    title="MaliMind API",
+    title="Mali API",
     description="Kenyan financial intelligence — real data, real impact.",
-    version="0.1.0",
+    version="1.0.0",
 )
 
 fast_api_app.add_middleware(
@@ -29,11 +29,14 @@ async def shutdown_event():
     stop_scheduler()
 
 # ── Routers ───────────────────────────────────────────────────────────────────
+fast_api_app.include_router(auth.router)
+fast_api_app.include_router(auth.public_router)
 fast_api_app.include_router(dashboard.router)
 fast_api_app.include_router(impact.router)
 fast_api_app.include_router(feed.router)
 fast_api_app.include_router(fetchers.router)
 fast_api_app.include_router(mali_chat.router)
+fast_api_app.include_router(profile.router)
 
 @fast_api_app.get("/", tags=["health"])
 async def root():
