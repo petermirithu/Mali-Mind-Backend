@@ -191,7 +191,7 @@ async def fetch_fuel_prices(city: str = "Nairobi") -> dict:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as http:
             resp = await http.get(
                 EPRA_URL,
-                headers={"User-Agent": "MaliMind/1.0 (malimind.co.ke)"}
+                headers={"User-Agent": "Mali/1.0 (mali.co.ke)"}
             )
             resp.raise_for_status()
             html = resp.text

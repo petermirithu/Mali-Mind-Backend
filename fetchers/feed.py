@@ -88,12 +88,12 @@ TOTAL_ITEM_LIMIT = 25
 MAX_ARTICLE_FETCH_CONCURRENCY = 8
 
 LISTING_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; MaliMindBot/1.0; +https://example.com/bot)",
+    "User-Agent": "Mozilla/5.0 (compatible; MaliBot/1.0; +https://example.com/bot)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
 ARTICLE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; MaliMindBot/1.0; +https://example.com/bot)",
+    "User-Agent": "Mozilla/5.0 (compatible; MaliBot/1.0; +https://example.com/bot)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
