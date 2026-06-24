@@ -40,7 +40,7 @@ fast_api_app.include_router(profile.router)
 
 @fast_api_app.get("/", tags=["health"])
 async def root():
-    return {"status": "ok", "app": "Mali Mind Backend", "version": settings.app_version}
+    return {"status": "ok", "app": "Mali Backend", "version": settings.app_version}
 
 
 @fast_api_app.get("/health", tags=["health"])

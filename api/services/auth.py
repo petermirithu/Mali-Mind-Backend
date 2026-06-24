@@ -124,7 +124,7 @@ class AuthService:
         return None
 
     @staticmethod
-    async def save_user(payload: SignUpPayload):
+    async def save_email_user(payload: SignUpPayload):
         db = get_db()
 
         # Generate a 6-digit verification code.
@@ -136,6 +136,7 @@ class AuthService:
             "fullname": payload.fullname,
             "email": payload.email,
             "firebase_uid": payload.firebase_uid,
+            "account_type": "Email",
             "is_verified": False,
             "verification_code_hash": verification_code_hash,
             "verification_expires": verification_expires.isoformat(),
@@ -173,6 +174,7 @@ class AuthService:
         user_payload = {
             "fullname": payload.fullname,
             "email": payload.email,
+            "account_type": "Gmail",
             "firebase_uid": payload.firebase_uid,
             "is_verified": True,
             "updated_at": datetime.utcnow().isoformat(),           

@@ -7,18 +7,18 @@ router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(is_authe
 public_router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/sign-up", response_model=User)
-async def save_user(payload: SignUpPayload):
+async def save_email_user(payload: SignUpPayload):
     """
     Saves user to database and sends email verification code.
     """
     try:
-        user = await AuthService.save_user(payload)
+        user = await AuthService.save_email_user(payload)
         return user
     except Exception as e:        
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/social-auth", response_model=User)
-async def save_user(payload: SignUpPayload):
+async def save_social_auth_user(payload: SignUpPayload):
     """
     Saves and returns user who signed up with google to database.
     """
