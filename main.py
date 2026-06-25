@@ -10,9 +10,25 @@ fast_api_app = FastAPI(
     version="1.0.0",
 )
 
+allowed_origins_raw = settings.allowed_origins
+
+if isinstance(allowed_origins_raw, str) and allowed_origins_raw.strip():
+    allowed_origins = [o.strip() for o in allowed_origins_raw.split(",") if o.strip()]
+elif isinstance(allowed_origins_raw, list):
+    allowed_origins = [str(o).strip() for o in allowed_origins_raw if str(o).strip()]
+else:
+    allowed_origins = []
+
+if allowed_origins:
+    allow_credentials = True
+else:
+    allowed_origins = ["*"]
+    allow_credentials = False
+ 
 fast_api_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten in production
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,    
     allow_methods=["*"],
     allow_headers=["*"],
 )

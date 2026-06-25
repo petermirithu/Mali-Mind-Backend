@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     from_email: str
     from_name: str
 
+    allowed_origins: str  
+
     class Config:
         env_file = ".env"
 
