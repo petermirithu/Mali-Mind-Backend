@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     from_name: str
 
     allowed_origins: str  
+    api_base_url:str
 
     class Config:
         env_file = ".env"

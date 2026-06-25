@@ -1,19 +1,51 @@
 """
-Background scheduler for monthly spending aggregation.
-Runs at midnight on the 1st of each month to archive previous month's spending data.
+Background scheduler for:
+- Monthly spending aggregation (1st day midnight)
+- Forex fetch (daily 7AM)
+- Fuel prices fetch (15th monthly 7AM)
+- Food basket seed (weekly Monday 7AM)
+- Feed seed (daily 7AM)
+
+Fetcher jobs call internal HTTP endpoints in api/routes/fetchers.py.
 """
-import logging
 import asyncio
+import logging
 from datetime import datetime, timezone
+
+import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from db.client import get_db
 from api.services.impact import ImpactService
+from core.config import settings
+from db.client import get_db
 
 logger = logging.getLogger(__name__)
 
-scheduler = BackgroundScheduler()
+# Ensure all cron jobs run in Kenya time.
+scheduler = BackgroundScheduler(timezone="Africa/Nairobi")
+
+
+def _trigger_fetcher(path: str):
+    """
+    Trigger internal fetcher endpoint with cron secret.
+    Example paths: /fetch/forex, /fetch/fuel, /fetch/food, /fetch/feed
+    """
+    base_url = str(settings.api_base_url).rstrip("/")
+    url = f"{base_url}{path}"
+
+    headers = {"x-cron-secret": settings.cron_secret}
+    timeout = httpx.Timeout(60.0)
+
+    logger.info(f"Triggering fetcher: {url}")
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, headers=headers)
+        response.raise_for_status()
+        try:
+            return response.json()
+        except Exception:
+            # In case endpoint returns non-JSON
+            return {"status_code": response.status_code, "text": response.text}
 
 
 @scheduler.scheduled_job(CronTrigger(day=1, hour=0, minute=0))
@@ -63,7 +95,9 @@ def archive_previous_month_spending(specific_user_id: int | None = None):
                 )
                 if existing.data:
                     skipped_count += 1
-                    logger.info(f"Skipped user {user_id}: month {month_to_archive} already archived.")
+                    logger.info(
+                        f"Skipped user {user_id}: month {month_to_archive} already archived."
+                    )
                     continue
 
                 # 2) Compute impact snapshot
@@ -127,6 +161,50 @@ def archive_previous_month_spending(specific_user_id: int | None = None):
         logger.error(f"Monthly archive job failed: {str(e)}", exc_info=True)
 
 
+@scheduler.scheduled_job(CronTrigger(hour=7, minute=0))
+def run_daily_forex_fetch():
+    """Trigger forex fetch endpoint daily at 7:00 AM (Africa/Nairobi)."""
+    try:
+        logger.info("Daily forex fetch job started...")
+        result = _trigger_fetcher("/fetch/forex")
+        logger.info(f"Daily forex fetch job completed: {result}")
+    except Exception as e:
+        logger.error(f"Daily forex fetch job failed: {str(e)}", exc_info=True)
+
+
+@scheduler.scheduled_job(CronTrigger(day=15, hour=7, minute=0))
+def run_monthly_fuel_fetch():
+    """Trigger fuel fetch endpoint on the 15th of every month at 7:00 AM."""
+    try:
+        logger.info("Monthly fuel fetch job started...")
+        result = _trigger_fetcher("/fetch/fuel")
+        logger.info(f"Monthly fuel fetch job completed: {result}")
+    except Exception as e:
+        logger.error(f"Monthly fuel fetch job failed: {str(e)}", exc_info=True)
+
+
+@scheduler.scheduled_job(CronTrigger(day_of_week="mon", hour=7, minute=0))
+def run_weekly_food_seed():
+    """Trigger food seed endpoint weekly on Monday at 7:00 AM."""
+    try:
+        logger.info("Weekly food basket seed job started...")
+        result = _trigger_fetcher("/fetch/food")
+        logger.info(f"Weekly food basket seed job completed: {result}")
+    except Exception as e:
+        logger.error(f"Weekly food basket seed job failed: {str(e)}", exc_info=True)
+
+
+@scheduler.scheduled_job(CronTrigger(hour=7, minute=0))
+def run_daily_feed_seed():
+    """Trigger feed seed endpoint daily at 7:00 AM."""
+    try:
+        logger.info("Daily feed seed job started...")
+        result = _trigger_fetcher("/fetch/feed")
+        logger.info(f"Daily feed seed job completed: {result}")
+    except Exception as e:
+        logger.error(f"Daily feed seed job failed: {str(e)}", exc_info=True)
+
+
 def start_scheduler():
     """
     Start the background scheduler.
@@ -134,7 +212,7 @@ def start_scheduler():
     """
     if not scheduler.running:
         scheduler.start()
-        logger.info("Background scheduler started")
+        logger.info("Background scheduler started (timezone=Africa/Nairobi)")
     else:
         logger.info("Background scheduler already running")
 

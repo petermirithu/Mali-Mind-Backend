@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes import auth, dashboard, impact, feed, fetchers, mali_chat, profile
 from core.config import settings
 from tasks.scheduler import start_scheduler, stop_scheduler
+import logging
+
+logger = logging.getLogger(__name__)
 
 fast_api_app = FastAPI(
     title="Mali API",
@@ -38,11 +41,13 @@ fast_api_app.add_middleware(
 async def startup_event():
     """Initialize background scheduler on app startup"""
     start_scheduler()
+    logger.info("Cron Jobs Active ⏰")
 
 @fast_api_app.on_event("shutdown")
 async def shutdown_event():
     """Stop background scheduler on app shutdown"""
     stop_scheduler()
+    logger.info("Cron Jobs Stopped ⏰")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 fast_api_app.include_router(auth.router)
