@@ -18,9 +18,9 @@ Backend for an AI-powered Kenyan financial intelligence app that turns economic 
 - Firebase Admin SDK for token verification and password updates.
 - Google Gemini and OpenRouter in the insight pipeline.
 - Azure AI Foundry-backed chat model for the Mali chat agent.
-- APScheduler for recurring background jobs.
-- Azure for hosting.
-- GitHub Actions or cron callers for protected fetcher triggers.
+- APScheduler for recurring jobs on persistent hosts; Vercel Cron on Vercel.
+- Native Vercel FastAPI deployment, or Uvicorn on a persistent host.
+- Authenticated GET/POST triggers for scheduled fetchers.
 
 ## High-Level Architecture
 
@@ -35,11 +35,14 @@ Backend for an AI-powered Kenyan financial intelligence app that turns economic 
 
 ```text
 .
-├── main.py                     # FastAPI application entrypoint
+├── main.py                     # FastAPI app (app and fast_api_app exports)
+├── vercel.json                 # Native FastAPI deployment and five cron schedules
+├── .vercelignore               # Upload exclusions, including local secrets
 ├── start.sh                    # Local dev start command
 ├── requirements.txt
 ├── core/
-│   └── config.py               # Environment-backed settings
+│   ├── config.py               # Environment-backed settings
+│   └── cron_auth.py            # Shared scheduled-job authentication
 ├── db/
 │   ├── client.py               # Shared Supabase client
 │   └── supabase_schema.sql     # Database schema bootstrap
@@ -51,6 +54,7 @@ Backend for an AI-powered Kenyan financial intelligence app that turns economic 
 ├── api/
 │   ├── routes/
 │   │   ├── auth.py             # Auth and password reset routes
+│   │   ├── cron.py             # Month-end spending cron endpoint
 │   │   ├── dashboard.py        # Dashboard snapshot endpoint
 │   │   ├── feed.py             # Feed and Ask Mali endpoints
 │   │   ├── fetchers.py         # Protected fetcher trigger routes
@@ -73,16 +77,18 @@ Backend for an AI-powered Kenyan financial intelligence app that turns economic 
 ├── firebase/
 │   ├── auth.py                 # FastAPI auth dependency
 │   ├── config.py               # Firebase Admin initialization
-│   └── firebase-service-account.json
-└── tasks/
-    └── scheduler.py            # Monthly spending archive job
+│   └── firebase-service-account.json  # Optional local credential, never deployed
+├── tasks/
+│   └── scheduler.py            # Local schedules and monthly archive implementation
+└── tests/
+    └── test_vercel.py          # Deployment and cron regression tests
 ```
 
 ## Prerequisites
 
 - Python 3.11
 - A Supabase project with the required schema applied
-- Firebase service account credentials available at `firebase/firebase-service-account.json`
+- Firebase service account credentials in `FIREBASE_SERVICE_ACCOUNT_JSON`, or an untracked local `firebase/firebase-service-account.json`
 - AI credentials for the providers you intend to use
 
 ## Local Setup
@@ -114,7 +120,10 @@ Current settings loaded by `core/config.py`:
 | `huggingface_api_key` | AI | Used by shared AI code paths if enabled. |
 | `openrouter_api_key` | AI | Fallback provider for insight generation. |
 | `open_exchange_rates_app_id` | Fetchers | API key for forex rate collection. |
-| `cron_secret` | Fetchers | Shared secret expected in the `x-cron-secret` header. |
+| `CRON_SECRET` | Scheduled jobs | Shared secret accepted as a bearer token or `x-cron-secret`; uppercase required by Vercel. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase | Service-account JSON; required on Vercel, optional with a local credential file. |
+| `allowed_origins` | CORS | Comma-separated frontend origins. |
+| `api_base_url` | Local scheduler | Public backend origin for internal HTTP fetcher calls. |
 | `azure_foundry_api_key` | Mali chat | Azure AI Foundry API key for the chat agent. |
 | `azure_foundry_project_url` | Mali chat | Azure AI Foundry endpoint URL. |
 | `azure_foundry_project_model_name` | Mali chat | Model deployment name used by the chat agent. |
@@ -148,12 +157,12 @@ Docs will be available at `http://localhost:8000/docs`.
 
 ### Startup and shutdown
 
-- On startup, the app starts the APScheduler background scheduler.
-- On shutdown, the scheduler is stopped cleanly.
+- On persistent hosts, startup/shutdown starts and stops APScheduler.
+- On Vercel (`VERCEL=1`), the in-process scheduler stays disabled. Vercel Cron calls authenticated HTTP routes instead.
 
-### Scheduled job
+### Scheduled jobs
 
-`tasks/scheduler.py` runs a monthly archive job at midnight on the first day of each month. It stores a spending snapshot per user in the `monthly_spending` table and can also be triggered manually for a specific user from the impact flow.
+[tasks/scheduler.py](tasks/scheduler.py) schedules daily forex/feed, monthly fuel, weekly food, and monthly spending snapshots in Nairobi time. [vercel.json](vercel.json) contains the equivalent UTC schedules for Vercel. See the [cron table](VERCEL_DEPLOYMENT.md#cron-jobs) for exact times and the month-end guard. The existing impact flow can still archive a specific user.
 
 ## Authentication And Security
 
@@ -179,7 +188,7 @@ These routes do not require a Firebase token:
 
 ### Protected fetcher routes
 
-Fetcher trigger endpoints require the `x-cron-secret` header. This is intended for cron jobs, GitHub Actions, or trusted internal callers.
+Fetcher trigger endpoints accept `Authorization: Bearer <CRON_SECRET>` or the legacy `x-cron-secret` header. GET is available for Vercel Cron; existing POST clients remain supported. All triggers require a nonempty configured secret.
 
 ## API Reference
 
@@ -348,6 +357,8 @@ The chat agent in `ai/mali_agent.py` is separate from the basic insight pipeline
 
 ## Deployment Notes
 
+See the [Vercel deployment guide](VERCEL_DEPLOYMENT.md) and [deployment checklist](DEPLOYMENT_CHECKLIST.md). Vercel uses `main:app` with existing route prefixes (no `/server`). Configure secrets in the Vercel dashboard; never upload local environment files or Firebase keys. `POST /mali/chat` works over HTTP; `/mali/chat/ws` uses Vercel's Fluid compute WebSocket beta and requires frontend reconnection when the function duration expires. Measure long cron jobs against the configured 300-second limit before production use.
+
 ### GitHub Actions Or Other Cron Callers
 
 If you trigger fetchers from GitHub Actions or an external scheduler, make sure the caller includes:
@@ -357,8 +368,9 @@ If you trigger fetchers from GitHub Actions or an external scheduler, make sure 
 
 ## Development Notes
 
-- CORS is currently configured with `allow_origins=["*"]`. Tighten this in production.
-- Firebase service account loading is file-based, so the service account JSON must exist at startup.
+- Set `allowed_origins` to your frontend origins in production; an empty value falls back to wildcard CORS without credentials.
+- Firebase loads environment JSON first and only permits a file fallback on local/persistent hosts.
+- Run deployment regression tests using `virtual/bin/python -m pytest tests/test_vercel.py -q`; external services are mocked.
 - The FastAPI OpenAPI spec is the source of truth for exact response models at runtime.
 
 ## Quick Start Checklist

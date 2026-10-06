@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     open_exchange_rates_app_id: str
 
     cron_secret: str
+    firebase_service_account_json: str = ""
 
     azure_foundry_api_key: str
     azure_foundry_project_url: str

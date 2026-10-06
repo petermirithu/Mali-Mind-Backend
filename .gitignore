@@ -1,4 +1,4 @@
 virtual/
-.env
+.env*
 __pycache__/
 firebase-service-account.json

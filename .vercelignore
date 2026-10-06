@@ -1,0 +1,64 @@
+# Python virtual environments
+virtual/
+venv/
+.venv/
+
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Credentials are supplied through Vercel environment variables
+.env
+.env.*
+firebase/*service-account*.json
+
+# Database files
+db_files/
+*.db
+*.sqlite
+
+# Git and version control
+.git/
+.gitignore
+.github/
+
+# Development files
+start.sh
+scripts/
+tests/
+.qodo/
+implementation_plan.md
+
+# Build and distribution
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node files (if any)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Logs
+*.log
+logs/
+
+# Misc
+.vercel/
+.DS_Store
+Thumbs.db

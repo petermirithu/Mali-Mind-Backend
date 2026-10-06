@@ -48,7 +48,7 @@ def _trigger_fetcher(path: str):
             return {"status_code": response.status_code, "text": response.text}
 
 
-@scheduler.scheduled_job(CronTrigger(day=1, hour=0, minute=0))
+@scheduler.scheduled_job(CronTrigger(day=1, hour=0, minute=0, timezone="Africa/Nairobi"))
 def archive_previous_month_spending(specific_user_id: int | None = None):
     """
     Runs at midnight on the 1st of each month (via scheduler), or can be called manually.
@@ -71,7 +71,7 @@ def archive_previous_month_spending(specific_user_id: int | None = None):
 
         if not users:
             logger.warning("No users found to archive.")
-            return
+            return {"archived": 0, "skipped": 0, "failed": 0}
 
         logger.info(f"Processing {len(users)} user(s) for month {month_to_archive}...")
         archived_count = 0
@@ -156,12 +156,14 @@ def archive_previous_month_spending(specific_user_id: int | None = None):
         )
         if failed_users:
             logger.warning(f"Failed users: {', '.join(failed_users)}")
+        return {"archived": archived_count, "skipped": skipped_count, "failed": len(failed_users)}
 
     except Exception as e:
         logger.error(f"Monthly archive job failed: {str(e)}", exc_info=True)
+        return {"archived": 0, "skipped": 0, "failed": 1}
 
 
-@scheduler.scheduled_job(CronTrigger(hour=7, minute=0))
+@scheduler.scheduled_job(CronTrigger(hour=7, minute=0, timezone="Africa/Nairobi"))
 def run_daily_forex_fetch():
     """Trigger forex fetch endpoint daily at 7:00 AM (Africa/Nairobi)."""
     try:
@@ -172,7 +174,7 @@ def run_daily_forex_fetch():
         logger.error(f"Daily forex fetch job failed: {str(e)}", exc_info=True)
 
 
-@scheduler.scheduled_job(CronTrigger(day=15, hour=7, minute=0))
+@scheduler.scheduled_job(CronTrigger(day=15, hour=7, minute=0, timezone="Africa/Nairobi"))
 def run_monthly_fuel_fetch():
     """Trigger fuel fetch endpoint on the 15th of every month at 7:00 AM."""
     try:
@@ -183,7 +185,7 @@ def run_monthly_fuel_fetch():
         logger.error(f"Monthly fuel fetch job failed: {str(e)}", exc_info=True)
 
 
-@scheduler.scheduled_job(CronTrigger(day_of_week="mon", hour=7, minute=0))
+@scheduler.scheduled_job(CronTrigger(day_of_week="mon", hour=7, minute=0, timezone="Africa/Nairobi"))
 def run_weekly_food_seed():
     """Trigger food seed endpoint weekly on Monday at 7:00 AM."""
     try:
@@ -194,7 +196,7 @@ def run_weekly_food_seed():
         logger.error(f"Weekly food basket seed job failed: {str(e)}", exc_info=True)
 
 
-@scheduler.scheduled_job(CronTrigger(hour=7, minute=0))
+@scheduler.scheduled_job(CronTrigger(hour=7, minute=0, timezone="Africa/Nairobi"))
 def run_daily_feed_seed():
     """Trigger feed seed endpoint daily at 7:00 AM."""
     try:

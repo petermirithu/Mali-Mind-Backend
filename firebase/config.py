@@ -1,17 +1,25 @@
+import json
+import os
 from pathlib import Path
+
+from core.config import settings
 import firebase_admin
 from firebase_admin import credentials, auth
 
 # Build absolute path from this file's directory
 SERVICE_ACCOUNT_PATH = Path(__file__).resolve().parent / "firebase-service-account.json"
 
-if not SERVICE_ACCOUNT_PATH.exists():
-    raise FileNotFoundError(
-        f"Firebase service account file not found at: {SERVICE_ACCOUNT_PATH}"
-    )
-
 if not firebase_admin._apps:
-    cred = credentials.Certificate(str(SERVICE_ACCOUNT_PATH))
+    if settings.firebase_service_account_json:
+        cred = credentials.Certificate(json.loads(settings.firebase_service_account_json))
+    elif os.getenv("VERCEL") == "1":
+        raise RuntimeError("Set FIREBASE_SERVICE_ACCOUNT_JSON in Vercel environment variables")
+    elif SERVICE_ACCOUNT_PATH.exists():
+        cred = credentials.Certificate(str(SERVICE_ACCOUNT_PATH))
+    else:
+        raise FileNotFoundError(
+            "Set FIREBASE_SERVICE_ACCOUNT_JSON or provide a local Firebase service account file"
+        )
     firebase_admin.initialize_app(cred)
 
 

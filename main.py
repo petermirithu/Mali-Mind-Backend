@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import auth, dashboard, impact, feed, fetchers, mali_chat, profile
+from api.routes import auth, dashboard, impact, feed, fetchers, mali_chat, profile, cron
 from core.config import settings
 from tasks.scheduler import start_scheduler, stop_scheduler
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,8 @@ fast_api_app = FastAPI(
     description="Kenyan financial intelligence — real data, real impact.",
     version="1.0.0",
 )
+
+app = fast_api_app
 
 allowed_origins_raw = settings.allowed_origins
 
@@ -40,14 +43,16 @@ fast_api_app.add_middleware(
 @fast_api_app.on_event("startup")
 async def startup_event():
     """Initialize background scheduler on app startup"""
-    start_scheduler()
-    logger.info("Cron Jobs Active ⏰")
+    if os.getenv("VERCEL") != "1":
+        start_scheduler()
+        logger.info("Cron Jobs Active ⏰")
 
 @fast_api_app.on_event("shutdown")
 async def shutdown_event():
     """Stop background scheduler on app shutdown"""
-    stop_scheduler()
-    logger.info("Cron Jobs Stopped ⏰")
+    if os.getenv("VERCEL") != "1":
+        stop_scheduler()
+        logger.info("Cron Jobs Stopped ⏰")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 fast_api_app.include_router(auth.router)
@@ -58,6 +63,7 @@ fast_api_app.include_router(feed.router)
 fast_api_app.include_router(fetchers.router)
 fast_api_app.include_router(mali_chat.router)
 fast_api_app.include_router(profile.router)
+fast_api_app.include_router(cron.router)
 
 @fast_api_app.get("/", tags=["health"])
 async def root():

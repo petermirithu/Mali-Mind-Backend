@@ -1,0 +1,32 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
+  "functions": {
+    "main.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{virtual/**,venv/**,.venv/**,.env,.env.*,firebase/*service-account*.json,tests/**,.pytest_cache/**,.qodo/**,.github/**}"
+    }
+  },
+  "crons": [
+    {
+      "path": "/fetch/forex",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/fetch/fuel",
+      "schedule": "0 4 15 * *"
+    },
+    {
+      "path": "/fetch/food",
+      "schedule": "0 4 * * 1"
+    },
+    {
+      "path": "/fetch/feed",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/cron/monthly-spending",
+      "schedule": "0 21 28-31 * *"
+    }
+  ]
+}
