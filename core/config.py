@@ -1,5 +1,5 @@
-from pydantic_settings import BaseSettings
-
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
 class Settings(BaseSettings):
     app_env: str 
@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     open_exchange_rates_app_id: str
 
     cron_secret: str
-    firebase_service_account_json: str = ""
+    
+    firebase_service_account_json: Optional[str] = None  # Firebase service account JSON (for production)
 
     azure_foundry_api_key: str
     azure_foundry_project_url: str
@@ -30,8 +31,11 @@ class Settings(BaseSettings):
     allowed_origins: str  
     api_base_url:str
 
-    class Config:
-        env_file = ".env"
-
+    model_config = SettingsConfigDict(
+        env_file=".env",  # Load from .env if it exists locally
+        env_file_encoding='utf-8',
+        extra="ignore",
+        case_sensitive=False,  # Environment variables are case-insensitive
+    )
 
 settings = Settings()

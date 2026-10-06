@@ -162,7 +162,7 @@ Docs will be available at `http://localhost:8000/docs`.
 
 ### Scheduled jobs
 
-[tasks/scheduler.py](tasks/scheduler.py) schedules daily forex/feed, monthly fuel, weekly food, and monthly spending snapshots in Nairobi time. [vercel.json](vercel.json) contains the equivalent UTC schedules for Vercel. See the [cron table](VERCEL_DEPLOYMENT.md#cron-jobs) for exact times and the month-end guard. The existing impact flow can still archive a specific user.
+[tasks/scheduler.py](tasks/scheduler.py) schedules daily forex/feed, monthly fuel, weekly food, and monthly spending snapshots in Nairobi time. [vercel.json](vercel.json) contains the equivalent UTC schedules for Vercel. See the [cron table](vercel_deployment.md#cron-jobs) for exact times and the month-end guard. The existing impact flow can still archive a specific user.
 
 ## Authentication And Security
 
@@ -357,7 +357,7 @@ The chat agent in `ai/mali_agent.py` is separate from the basic insight pipeline
 
 ## Deployment Notes
 
-See the [Vercel deployment guide](VERCEL_DEPLOYMENT.md) and [deployment checklist](DEPLOYMENT_CHECKLIST.md). Vercel uses `main:app` with existing route prefixes (no `/server`). Configure secrets in the Vercel dashboard; never upload local environment files or Firebase keys. `POST /mali/chat` works over HTTP; `/mali/chat/ws` uses Vercel's Fluid compute WebSocket beta and requires frontend reconnection when the function duration expires. Measure long cron jobs against the configured 300-second limit before production use.
+See the [Vercel deployment guide and checklist](vercel_deployment.md). Vercel uses `main:app` with existing route prefixes (no `/server`). Configure secrets in the Vercel dashboard; never upload local environment files or Firebase keys. `POST /mali/chat` works over HTTP; `/mali/chat/ws` uses Vercel's Fluid compute WebSocket beta and requires frontend reconnection when the function duration expires. Measure long cron jobs against the configured 300-second limit before production use.
 
 ### GitHub Actions Or Other Cron Callers
 
