@@ -4,9 +4,10 @@ This guide explains how to configure Firebase for production deployment on Verce
 
 ## Overview
 
-Your Firebase configuration (`firebase/config.py`) now supports:
-- **Development**: Loads from local `firebase/firebase-service-account.json` file
-- **Production**: Loads from `firebase_service_account_json` environment variable
+The Firebase configuration in [firebase/config.py](firebase/config.py) supports:
+- **All environments**: Reads `FIREBASE_SERVICE_ACCOUNT_JSON` through the case-insensitive settings loader. Existing lowercase variable names also work.
+- **Local development**: Falls back to the untracked `firebase/firebase-service-account.json` when no JSON environment value is configured.
+- **Production**: `VERCEL=1`, `APP_ENV=prod`, or `APP_ENV=production` requires the JSON environment value; there is no file fallback.
 
 This approach allows you to:
 1. Keep sensitive credentials out of Git
@@ -48,13 +49,13 @@ $json | Set-Clipboard
 ### Step 3: Set Environment Variable in Vercel
 
 1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Select your project: `enabled-loan-tracker-backend`
+2. Select the Vercel project connected to `Mali-Mind-Backend`.
 3. Click **Settings** → **Environment Variables**
 4. Click **Add New**
 5. Fill in:
-   - **Name**: `firebase_service_account_json`
-   - **Value**: Paste the entire JSON content (from Step 2)
-   - **Environment**: Select **Production** (and Preview if desired)
+   - **Name**: `FIREBASE_SERVICE_ACCOUNT_JSON`
+   - **Value**: Paste the entire JSON object (from Step 2), without wrapping it in extra quotes.
+   - **Environment**: Configure both **Production** and **Preview**, using separate Firebase projects where appropriate.
 6. Click **Save**
 
 ### Step 4: Verify Environment Variable
@@ -76,30 +77,19 @@ After setting it in Vercel:
 
 ### Development Environment
 
-When `app_env=dev`:
-```python
-# Loads from local file
-cred = credentials.Certificate(str(SERVICE_ACCOUNT_PATH))
-# SERVICE_ACCOUNT_PATH = "firebase/firebase-service-account.json"
-```
+When not running on Vercel and `APP_ENV` is neither `prod` nor `production`, a missing JSON setting falls back to the local credential file. A configured JSON value always takes priority.
 
 ### Production Environment (Vercel)
 
-When `app_env=prod`:
-```python
-# Loads from environment variable
-firebase_json_str = os.environ.get("firebase_service_account_json")
-firebase_json_dict = json.loads(firebase_json_str)
-cred = credentials.Certificate(firebase_json_dict)
-```
+Set `APP_ENV=production` and `FIREBASE_SERVICE_ACCOUNT_JSON`. The case-insensitive settings loader supplies the JSON to Firebase Admin, independent of the environment-variable spelling. `VERCEL=1` also enforces environment-only credentials in previews. Initialization happens during import, so invalid or missing credentials prevent the application from starting rather than leaving broken authentication routes.
 
 ## Troubleshooting
 
 ### Issue: "Firebase service account JSON not found in environment variable"
 
 **Solution**: 
-- Verify the environment variable name is exactly: `firebase_service_account_json`
-- Check that it's set to **Production** scope in Vercel
+- Set `FIREBASE_SERVICE_ACCOUNT_JSON` (legacy lowercase names also work).
+- Check that it is set for the deployment's **Production** or **Preview** scope.
 - Redeploy after adding the variable
 
 ### Issue: "Invalid JSON in firebase_service_account_json"
@@ -118,8 +108,8 @@ cred = credentials.Certificate(firebase_json_dict)
 
 **Solution**:
 - Ensure `firebase/firebase-service-account.json` exists locally
-- File should not be in `.gitignore` (it is safe to commit if needed for dev)
-- Or, add to `.env` file: `app_env=dev`
+- Keep the credential file ignored by Git. Never commit it, including for development.
+- Alternatively, set `FIREBASE_SERVICE_ACCOUNT_JSON` in the ignored local `.env` file.
 
 ## Security Best Practices
 
@@ -134,8 +124,8 @@ cred = credentials.Certificate(firebase_json_dict)
    - Don't use your main Firebase admin account
 
 4. **Environment variable scope**
-   - Set `firebase_service_account_json` only for **Production**
-   - Keep development using local file
+   - Configure JSON credentials separately for **Production** and **Preview**.
+   - Use a separate Firebase project for staging tests; local development may use an ignored credential file.
 
 5. **Monitor Firebase usage**
    - Check Firebase Console for unexpected authentication attempts
@@ -161,11 +151,9 @@ from firebase.config import verify_firebase_token
 2. Follow Steps 1-3 above
 3. Redeploy to Vercel
 
-### To disable Firebase temporarily:
+### Missing Firebase credentials
 
-1. Remove `firebase_service_account_json` from environment variables
-2. Make sure your code handles missing Firebase gracefully
-3. Consider wrapping Firebase imports in try-catch blocks
+Firebase is required by the authentication API. Removing production credentials intentionally fails startup. Restore valid configuration and redeploy; do not suppress initialization errors or commit a private key as a workaround.
 
 ## Reference
 
@@ -175,5 +163,4 @@ from firebase.config import verify_firebase_token
 
 ---
 
-**Status**: ✅ Ready for Production
-**Last Updated**: August 2024
+**Status**: Local regression checks pass. Verify the deployed application with a real Firebase ID token before enabling production traffic. See the [deployment checklist](VERCEL_DEPLOYMENT.md#deployment-checklist).

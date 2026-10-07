@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from api.services.dashboard import DashboardResponse, DashboardService
+from firebase.auth import is_authenticated
+from fastapi import Depends
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
-
+router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(is_authenticated)])
 
 @router.get("/", response_model=DashboardResponse)
 async def get_dashboard():

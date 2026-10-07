@@ -3,8 +3,10 @@ from datetime import datetime
 from api.services.impact import FullImpactResponse, ImpactProfileRequest, ImpactResponse, ImpactService
 from db.client import get_db
 from tasks.scheduler import archive_previous_month_spending
+from firebase.auth import is_authenticated
+from fastapi import Depends
 
-router = APIRouter(prefix="/impact", tags=["impact"])
+router = APIRouter(prefix="/impact", tags=["impact"], dependencies=[Depends(is_authenticated)])
 
 @router.get("/", response_model=ImpactResponse)
 async def get_impact():    

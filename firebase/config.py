@@ -20,32 +20,32 @@ def _initialize_firebase():
         return  # Already initialized
     
     try:
-        if settings.app_env == "prod":
-            # Production: Load from environment variable
-            firebase_json_str = os.environ.get("firebase_service_account_json")
-            if not firebase_json_str:
-                _firebase_error = "Firebase service account JSON not found in environment variable 'firebase_service_account_json'"
-                raise Exception(_firebase_error)                                
+        firebase_json_str = settings.firebase_service_account_json
+        if firebase_json_str and firebase_json_str.strip():
             try:
                 firebase_json_dict = json.loads(firebase_json_str)
-            except json.JSONDecodeError as e:
-                _firebase_error = f"Invalid JSON in 'firebase_service_account_json' environment variable: {e}"
-                raise Exception(_firebase_error)
-                
-            cred = credentials.Certificate(firebase_json_dict)
+                if not isinstance(firebase_json_dict, dict):
+                    raise ValueError("Expected a JSON object")
+                cred = credentials.Certificate(firebase_json_dict)
+            except (ValueError, TypeError):
+                raise RuntimeError(
+                    "FIREBASE_SERVICE_ACCOUNT_JSON must contain a valid service-account JSON object"
+                ) from None
+        elif os.getenv("VERCEL") == "1" or settings.app_env.lower() in {"prod", "production"}:
+            raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is required in production")
         else:
-            # Development: Load from local file
             if not SERVICE_ACCOUNT_PATH.exists():
-                _firebase_error = f"Firebase service account file not found at: {SERVICE_ACCOUNT_PATH}"
-                raise Exception(_firebase_error)
-                
+                raise RuntimeError(
+                    "Set FIREBASE_SERVICE_ACCOUNT_JSON or provide the local Firebase service-account file"
+                )
             cred = credentials.Certificate(str(SERVICE_ACCOUNT_PATH))
-        
+
         firebase_admin.initialize_app(cred)
-        _firebase_initialized = True        
+        _firebase_initialized = True
+        _firebase_error = None
     except Exception as e:
         _firebase_error = f"Failed to initialize Firebase: {str(e)}"
-        raise Exception(_firebase_error)
+        raise RuntimeError(_firebase_error) from None
 
 
 def _ensure_firebase():
@@ -73,5 +73,5 @@ def update_firebase_user_password(uid: str, new_password: str):
     return updated_user
 
 
-# Initialize Firebase on module load (don't crash if it fails)
+# Fail fast on invalid credentials instead of deploying a broken authentication API.
 _initialize_firebase()

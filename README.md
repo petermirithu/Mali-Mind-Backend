@@ -86,7 +86,7 @@ Backend for an AI-powered Kenyan financial intelligence app that turns economic 
 
 ## Prerequisites
 
-- Python 3.11
+- Python 3.12 for Vercel (selected by [.python-version](.python-version)); local Python 3.11 remains supported.
 - A Supabase project with the required schema applied
 - Firebase service account credentials in `FIREBASE_SERVICE_ACCOUNT_JSON`, or an untracked local `firebase/firebase-service-account.json`
 - AI credentials for the providers you intend to use

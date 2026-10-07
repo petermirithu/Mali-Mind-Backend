@@ -32,7 +32,7 @@ Set these in **Project Settings → Environment Variables**, separately for Prev
 | `ALLOWED_ORIGINS` | Comma-separated frontend origins, e.g. `https://your-frontend.example`. Set explicitly in production. |
 | `API_BASE_URL` | Public backend origin, e.g. `https://mali-backend.vercel.app`; used by the local scheduler's HTTP calls. |
 
-All existing settings fields are required at startup even when a feature is unused. `FIREBASE_SERVICE_ACCOUNT_JSON` has a local default only: local development may still use the untracked `firebase/firebase-service-account.json`. Vercel never falls back to that file. Keep Vercel's system environment variables enabled (`VERCEL=1`) so the background scheduler stays disabled.
+All existing settings fields are required at startup even when a feature is unused. `FIREBASE_SERVICE_ACCOUNT_JSON` is read through the case-insensitive settings loader, so uppercase Vercel variables and existing lowercase local variables both work. A nonempty JSON value takes priority in every environment. Only local non-production environments may fall back to the untracked `firebase/firebase-service-account.json`; `APP_ENV=prod`, `APP_ENV=production`, and `VERCEL=1` require the environment value. Invalid/missing credentials fail startup with a configuration error. Keep Vercel's system environment variables enabled (`VERCEL=1`) so the background scheduler stays disabled.
 
 ## Database preparation
 
@@ -62,13 +62,23 @@ Jobs execute within the HTTP request, not detached background tasks. Archive fai
 
 1. Import this repository at [vercel.com/new](https://vercel.com/new).
 2. Set the root to this repository and the framework to **FastAPI**. Remove imported custom build/install/output overrides; use framework defaults and enable Fluid compute for the configured duration.
-3. Configure the environment variables above. Vercel's current default Python runtime is 3.12; local checks use the existing Python 3.11 environment in [virtual/](virtual/). Verify the deployed Python build and cold start before promotion.
+3. Configure the environment variables above. [.python-version](.python-version) selects Python 3.12 explicitly. The deployment regression tests pass in a clean Python 3.12 environment as well as the existing Python 3.11 environment. Verify the deployed build and cold start before promotion.
 4. Deploy a preview and run the health, auth, database, email, CORS, and REST chat checks below. A preview does not run cron automatically.
 5. Deploy/promote to production. Confirm all five jobs under **Settings → Cron Jobs** and inspect their first execution logs.
 
 If the Vercel CLI is already installed, `vercel` creates a preview and `vercel --prod` deploys production. Neither is required for dashboard deployment.
 
 ## Verification
+
+The reference Enabled Loan Tracker backend uses a legacy `api/index.py` bridge and catch-all routes. Mali already exports `main:app`, which Vercel's current native FastAPI integration supports directly. Do not mix the two routing configurations or copy the reference project's environment files.
+
+Validation performed for this configuration:
+
+- 30 regression tests passed on Python 3.11 and in a fresh Python 3.12 environment, with generated test credentials and no external service requests.
+- A clean install of the exact requirements passed `pip check`; Linux x86_64 Python 3.12 binary-wheel dependency resolution also succeeded.
+- Tests cover Firebase environment/file handling, cold start, health/docs/OpenAPI, CORS, scheduler suppression, authenticated cron GET/legacy POST routes, monthly date guards, and email template loading outside the project directory.
+
+These checks do not replace a Vercel build or live provider verification.
 
 ```bash
 # Focused regression tests (external services are mocked)
@@ -138,7 +148,7 @@ Use the configuration guidance above and complete the unchecked items against th
 - [ ] Import the repository using the repository root and **FastAPI** framework.
 - [ ] Clear imported build/install/output overrides; use framework defaults.
 - [ ] Enable Fluid compute and confirm the configured duration fits the selected plan.
-- [ ] Confirm the Python runtime selected during the build; local validation uses Python 3.11 in [virtual/](virtual/), whereas Vercel currently defaults to 3.12.
+- [ ] Confirm the build uses Python 3.12 as selected by [.python-version](.python-version).
 - [ ] Keep system environment variables enabled so `VERCEL=1` is available.
 - [ ] Set all settings from the [environment table](#configure-environment-variables), scoped separately for Preview and Production.
 - [ ] Set uppercase `CRON_SECRET` to a strong random value and set `FIREBASE_SERVICE_ACCOUNT_JSON` to valid JSON.

@@ -2,8 +2,10 @@ from fastapi import APIRouter, HTTPException, Query
 from db.client import get_db
 from ai.insights import generate_insight
 from api.services.feed import FeedService, FeedItem
+from firebase.auth import is_authenticated
+from fastapi import Depends
 
-router = APIRouter(prefix="/feed", tags=["feed"])
+router = APIRouter(prefix="/feed", tags=["feed"], dependencies=[Depends(is_authenticated)])
 
 @router.get("/", response_model=list[FeedItem])
 async def get_feed():

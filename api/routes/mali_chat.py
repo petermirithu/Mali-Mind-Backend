@@ -6,12 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
-
+from firebase.auth import is_authenticated
+from fastapi import Depends
 from ai.mali_agent import ask_mali, astream_mali
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mali", tags=["mali-chat"])
+router = APIRouter(prefix="/mali", tags=["mali-chat"], dependencies=[Depends(is_authenticated)])
 
 
 class ChatHistoryItem(BaseModel):
